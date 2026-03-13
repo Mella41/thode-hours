@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Reset Password - Thode Hours</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="header">
+        <h1>Reset your password</h1>
+      </header>
+      <main class="main">
+        <section class="card auth-card">
+          <form id="reset-form" class="form visible">
+            <div class="field">
+              <label for="reset-password">New password</label>
+              <input type="password" id="reset-password" required />
+            </div>
+            <button type="submit" class="btn primary">Update password</button>
+            <p class="error" id="reset-error"></p>
+            <p class="success" id="reset-success"></p>
+          </form>
+        </section>
+      </main>
+    </div>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+      const form = document.getElementById('reset-form');
+      const input = document.getElementById('reset-password');
+      const errEl = document.getElementById('reset-error');
+      const okEl = document.getElementById('reset-success');
+
+      if (!token) {
+        errEl.textContent = 'Missing or invalid reset link.';
+        form.querySelector('button').disabled = true;
+      }
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        errEl.textContent = '';
+        okEl.textContent = '';
+        const password = input.value;
+        if (!password) {
+          errEl.textContent = 'Please enter a new password.';
+          return;
+        }
+        try {
+          const res = await fetch('/api/reset-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, password })
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || 'Failed to reset password.');
+          }
+          okEl.textContent = 'Password updated. You can close this tab and log in.';
+          input.value = '';
+        } catch (err) {
+          errEl.textContent = err.message || 'Failed to reset password.';
+        }
+      });
+    </script>
+  </body>
+  </html>
+
