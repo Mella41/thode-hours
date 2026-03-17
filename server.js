@@ -471,7 +471,7 @@ app.delete('/api/logs/:id', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'Log not found.' });
     }
 
-    if (log.user_id !== Number(userId)) {
+    if (Number(log.user_id) !== Number(userId)) {
       return res.status(403).json({ error: 'You can only delete your own logs.' });
     }
 
