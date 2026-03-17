@@ -7,10 +7,7 @@ const tabSignup = document.getElementById('tab-signup');
 const loginForm = document.getElementById('login-form');
 const signupForm = document.getElementById('signup-form');
 const authError = document.getElementById('auth-error');
-const forgotForm = document.getElementById('forgot-form');
-const forgotEmailInput = document.getElementById('forgot-email');
-const forgotHint = document.getElementById('forgot-hint');
-const forgotPasswordLink = document.getElementById('forgot-password-link');
+// Forgot password UI removed
 
 const welcomeText = document.getElementById('welcome-text');
 const currentMonthLabel = document.getElementById('current-month-label');
@@ -129,13 +126,11 @@ function switchTab(toSignup) {
     tabLogin.classList.remove('active');
     signupForm.classList.add('visible');
     loginForm.classList.remove('visible');
-    forgotForm.classList.remove('visible');
   } else {
     tabLogin.classList.add('active');
     tabSignup.classList.remove('active');
     loginForm.classList.add('visible');
     signupForm.classList.remove('visible');
-    forgotForm.classList.remove('visible');
   }
   authError.textContent = '';
 }
@@ -215,32 +210,7 @@ signupForm.addEventListener('submit', async (e) => {
   }
 });
 
-forgotPasswordLink.addEventListener('click', () => {
-  loginForm.classList.remove('visible');
-  signupForm.classList.remove('visible');
-  forgotForm.classList.add('visible');
-  authError.textContent = '';
-});
-
-forgotForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  authError.textContent = '';
-  forgotHint.textContent = 'We’ll email you a link if an account exists.';
-  const email = forgotEmailInput.value.trim();
-  if (!email) {
-    authError.textContent = 'Please enter your email.';
-    return;
-  }
-  try {
-    await api('/api/forgot-password', {
-      method: 'POST',
-      body: JSON.stringify({ email })
-    });
-    forgotHint.textContent = 'If an account exists, we sent a reset link.';
-  } catch (err) {
-    authError.textContent = err.message || 'Failed to send reset email.';
-  }
-});
+// Forgot password UI removed
 
 logoutBtn.addEventListener('click', () => {
   clearSession();
