@@ -367,6 +367,7 @@ function renderLeaderboard(data, currentUserId) {
     const nameTd = document.createElement('td');
     const hoursTd = document.createElement('td');
     const avgProdTd = document.createElement('td');
+    const streakTd = document.createElement('td');
 
     rankTd.textContent = index + 1;
     nameTd.textContent = row.name;
@@ -377,10 +378,13 @@ function renderLeaderboard(data, currentUserId) {
       avgProdTd.textContent = Number(row.avgProductivity).toFixed(2);
     }
 
+    streakTd.textContent = row.streak != null ? row.streak : 0;
+
     tr.appendChild(rankTd);
     tr.appendChild(nameTd);
     tr.appendChild(hoursTd);
     tr.appendChild(avgProdTd);
+    tr.appendChild(streakTd);
 
     tr.classList.add('clickable-row');
     tr.addEventListener('click', () => {

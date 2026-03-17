@@ -358,7 +358,7 @@ app.get('/api/leaderboard', authMiddleware, (req, res) => {
   const selectedMonth = (month || currentMonth).slice(0, 7);
 
   try {
-    const stmt = db.prepare(
+    const baseStmt = db.prepare(
       `SELECT
          u.id as userId,
          COALESCE(u.username, u.name) as name,
@@ -395,8 +395,63 @@ app.get('/api/leaderboard', authMiddleware, (req, res) => {
        HAVING IFNULL(SUM(t.hours), 0) > 0
        ORDER BY totalHours DESC, u.name ASC`
     );
-    const rows = stmt.all(selectedMonth);
-    res.json({ month: selectedMonth, leaderboard: rows });
+
+    const dateStmt = db.prepare(
+      `SELECT DISTINCT date
+       FROM time_logs
+       WHERE user_id = ? AND substr(date, 1, 7) = ?
+       ORDER BY date ASC`
+    );
+
+    const rows = baseStmt.all(selectedMonth);
+
+    const todayISO = getTodayISO();
+
+    const leaderboardWithStreak = rows.map((row) => {
+      const dates = dateStmt
+        .all(row.userId, selectedMonth)
+        .map((d) => d.date)
+        .filter(Boolean)
+        .sort();
+
+      let currentStreak = 0;
+
+      if (dates.length > 0) {
+        // Compute current streak ending at the most recent log date that is not in the future.
+        // Start from latest valid date and walk backwards while dates are consecutive.
+        const validDates = dates.filter((d) => d <= todayISO);
+        if (validDates.length > 0) {
+          let streak = 1;
+          let i = validDates.length - 1;
+          let prev = validDates[i];
+
+          const toDate = (iso) => new Date(iso + 'T00:00:00');
+
+          while (i > 0) {
+            const curr = validDates[i - 1];
+            const prevDate = toDate(prev);
+            const currDate = toDate(curr);
+            const diffMs = prevDate - currDate;
+            const diffDays = diffMs / (1000 * 60 * 60 * 24);
+            if (diffDays === 1) {
+              streak += 1;
+              prev = curr;
+              i -= 1;
+            } else {
+              break;
+            }
+          }
+          currentStreak = streak;
+        }
+      }
+
+      return {
+        ...row,
+        streak: currentStreak
+      };
+    });
+
+    res.json({ month: selectedMonth, leaderboard: leaderboardWithStreak });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to load leaderboard.' });
