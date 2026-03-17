@@ -551,6 +551,33 @@ app.delete('/api/admin/purge-non-mac-users', (req, res) => {
   }
 });
 
+// Admin: delete all users and related data
+// Protected by the same ADMIN_TOKEN mechanism as above
+app.delete('/api/admin/delete-all-users', (req, res) => {
+  const requiredToken = process.env.ADMIN_TOKEN;
+  if (requiredToken) {
+    const provided = req.headers['x-admin-token'];
+    if (!provided || provided !== requiredToken) {
+      return res.status(403).json({ error: 'Forbidden.' });
+    }
+  }
+
+  try {
+    const deleteLogs = db.prepare('DELETE FROM time_logs').run();
+    const deleteResets = db.prepare('DELETE FROM password_resets').run();
+    const deleteUsers = db.prepare('DELETE FROM users').run();
+
+    res.json({
+      deletedUsers: deleteUsers.changes || 0,
+      deletedLogs: deleteLogs.changes || 0,
+      deletedPasswordResets: deleteResets.changes || 0
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete all users.' });
+  }
+});
+
 // Fallback to SPA
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
