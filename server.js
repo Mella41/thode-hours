@@ -3,9 +3,9 @@ const express = require('express');
 const cors = require('cors');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
-const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,70 +17,57 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Database setup
-const dbPath = path.join(__dirname, 'data.sqlite');
-const db = new Database(dbPath);
-
-db.pragma('journal_mode = WAL');
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    username TEXT,
-    email TEXT NOT NULL UNIQUE,
-    password TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS time_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    date TEXT NOT NULL,
-    arrival TEXT NOT NULL,
-    departure TEXT NOT NULL,
-    hours REAL NOT NULL,
-    productivity TEXT NOT NULL DEFAULT 'Super locked',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (user_id) REFERENCES users(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS password_resets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    token TEXT NOT NULL UNIQUE,
-    expires_at TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (user_id) REFERENCES users(id)
-  );
-`);
-
-// Ensure productivity column exists for older databases
-try {
-  db.prepare(
-    "ALTER TABLE time_logs ADD COLUMN productivity TEXT NOT NULL DEFAULT 'Super locked'"
-  ).run();
-} catch (err) {
-  // Ignore if the column already exists
+// Database (Postgres/Supabase) setup
+if (!process.env.DATABASE_URL) {
+  throw new Error('Missing DATABASE_URL. Add it in your environment variables.');
 }
 
-// Ensure username column/index exist for older databases
-try {
-  db.prepare('ALTER TABLE users ADD COLUMN username TEXT').run();
-} catch (err) {
-  // ignore if exists
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  // Supabase requires SSL; this is the common Node config for it
+  ssl: { rejectUnauthorized: false }
+});
+
+async function dbQuery(text, params = []) {
+  return pool.query(text, params);
 }
-try {
-  db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique ON users(username)').run();
-} catch (err) {
-  // ignore
-}
-try {
-  // For existing accounts without a username, default to their current name
-  db.prepare(
-    'UPDATE users SET username = name WHERE (username IS NULL OR username = "") AND name IS NOT NULL'
-  ).run();
-} catch (err) {
-  // ignore if there are uniqueness issues; those can be fixed manually
+
+async function initDb() {
+  await dbQuery(`
+    CREATE TABLE IF NOT EXISTS users (
+      id BIGSERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      username TEXT UNIQUE,
+      email TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS time_logs (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      date TEXT NOT NULL,
+      arrival TEXT NOT NULL,
+      departure TEXT NOT NULL,
+      hours DOUBLE PRECISION NOT NULL,
+      productivity TEXT NOT NULL DEFAULT 'Super locked',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token TEXT NOT NULL UNIQUE,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  await dbQuery(
+    `UPDATE users
+     SET username = name
+     WHERE (username IS NULL OR username = '') AND name IS NOT NULL`
+  );
 }
 
 // Mail transporter (configure via environment)
@@ -145,7 +132,7 @@ function authMiddleware(req, res, next) {
 // API routes
 
 // Signup
-app.post('/api/signup', (req, res) => {
+app.post('/api/signup', async (req, res) => {
   const { username, email, password } = req.body || {};
   if (!username || !email || !password) {
     return res.status(400).json({ error: 'Username, email, and password are required.' });
@@ -162,19 +149,18 @@ app.post('/api/signup', (req, res) => {
 
   try {
     const hashed = bcrypt.hashSync(password, 10);
-    const stmt = db.prepare(
-      'INSERT INTO users (name, username, email, password) VALUES (?, ?, ?, ?)'
+    const result = await dbQuery(
+      `INSERT INTO users (name, username, email, password)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, username, email`,
+      [cleanUsername, cleanUsername, cleanEmail, hashed]
     );
-    const info = stmt.run(cleanUsername, cleanUsername, cleanEmail, hashed);
-    const user = {
-      id: info.lastInsertRowid,
-      username: cleanUsername,
-      email: cleanEmail
-    };
+    const created = result.rows[0];
+    const user = { id: created.id, username: created.username, email: created.email };
     const token = createToken(user);
     res.json({ userId: user.id, username: user.username, email: user.email, token });
   } catch (err) {
-    if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+    if (err && err.code === '23505') {
       return res.status(409).json({ error: 'Username or email already in use.' });
     }
     console.error(err);
@@ -183,7 +169,7 @@ app.post('/api/signup', (req, res) => {
 });
 
 // Login (accepts email OR username)
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { identifier, password } = req.body || {};
   if (!identifier || !password) {
     return res.status(400).json({ error: 'Email or username and password are required.' });
@@ -192,11 +178,12 @@ app.post('/api/login', (req, res) => {
   try {
     const trimmed = identifier.trim();
     const isEmail = trimmed.includes('@');
-    const stmt = isEmail
-      ? db.prepare('SELECT id, username, email, password FROM users WHERE lower(email) = ?')
-      : db.prepare('SELECT id, username, email, password FROM users WHERE username = ?');
-
-    const user = stmt.get(isEmail ? trimmed.toLowerCase() : trimmed);
+    const query = isEmail
+      ? 'SELECT id, username, email, password FROM users WHERE lower(email) = $1'
+      : 'SELECT id, username, email, password FROM users WHERE username = $1';
+    const value = isEmail ? trimmed.toLowerCase() : trimmed;
+    const result = await dbQuery(query, [value]);
+    const user = result.rows[0];
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
@@ -223,7 +210,7 @@ app.post('/api/login', (req, res) => {
 });
 
 // Add a time log
-app.post('/api/logs', authMiddleware, (req, res) => {
+app.post('/api/logs', authMiddleware, async (req, res) => {
   const { date: rawDate, arrival, departure, productivity } = req.body || {};
   const userId = req.user && req.user.userId;
   if (!userId || !arrival || !departure || !productivity) {
@@ -282,30 +269,38 @@ app.post('/api/logs', authMiddleware, (req, res) => {
 
   try {
     // Prevent overlapping logs for the same user and day
-    const existing = db
-      .prepare(
-        `SELECT arrival, departure
-         FROM time_logs
-         WHERE user_id = ? AND date = ?`
-      )
-      .all(userId, date);
+    const existing = await dbQuery(
+      `SELECT arrival, departure
+       FROM time_logs
+       WHERE user_id = $1 AND date = $2`,
+      [userId, date]
+    );
 
-    for (const row of existing) {
+    for (const row of existing.rows) {
       const s = parseTimeToMinutes(row.arrival);
       const e = parseTimeToMinutes(row.departure);
       if (s === null || e === null) continue;
       // Overlap if new start < existing end AND new end > existing start
       if (startMin < e && endMin > s) {
-        return res.status(400).json({ error: 'This entry overlaps with an existing log for today.' });
+        return res.status(400).json({ error: 'This entry overlaps with an existing log for that date.' });
       }
     }
 
-    const stmt = db.prepare(
+    const inserted = await dbQuery(
       `INSERT INTO time_logs (user_id, date, arrival, departure, hours, productivity)
-       VALUES (?, ?, ?, ?, ?, ?)`
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id`,
+      [userId, date, arrival, departure, hours, productivity]
     );
-    const info = stmt.run(userId, date, arrival, departure, hours, productivity);
-    res.json({ id: info.lastInsertRowid, userId, date, arrival, departure, hours, productivity });
+    res.json({
+      id: inserted.rows[0].id,
+      userId,
+      date,
+      arrival,
+      departure,
+      hours,
+      productivity
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to save log.' });
@@ -313,7 +308,7 @@ app.post('/api/logs', authMiddleware, (req, res) => {
 });
 
 // Get current month summary for a user
-app.get('/api/summary', authMiddleware, (req, res) => {
+app.get('/api/summary', authMiddleware, async (req, res) => {
   const { userId, month } = req.query;
   if (!userId) {
     return res.status(400).json({ error: 'userId is required.' });
@@ -326,22 +321,26 @@ app.get('/api/summary', authMiddleware, (req, res) => {
   const selectedMonth = (month || currentMonth).slice(0, 7);
 
   try {
-    const logsStmt = db.prepare(
+    const logsRes = await dbQuery(
       `SELECT id, date, arrival, departure, hours, productivity
        FROM time_logs
-       WHERE user_id = ? AND substr(date, 1, 7) = ?
-       ORDER BY date ASC, arrival ASC`
+       WHERE user_id = $1 AND substr(date, 1, 7) = $2
+       ORDER BY date ASC, arrival ASC`,
+      [userId, selectedMonth]
     );
-    const logs = logsStmt.all(userId, selectedMonth);
 
-    const totalStmt = db.prepare(
-      `SELECT IFNULL(SUM(hours), 0) AS total
+    const totalRes = await dbQuery(
+      `SELECT COALESCE(SUM(hours), 0) AS total
        FROM time_logs
-       WHERE user_id = ? AND substr(date, 1, 7) = ?`
+       WHERE user_id = $1 AND substr(date, 1, 7) = $2`,
+      [userId, selectedMonth]
     );
-    const { total } = totalStmt.get(userId, selectedMonth);
 
-    res.json({ month: selectedMonth, totalHours: total, logs });
+    res.json({
+      month: selectedMonth,
+      totalHours: Number(totalRes.rows[0].total || 0),
+      logs: logsRes.rows.map((r) => ({ ...r, hours: Number(r.hours) }))
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to load summary.' });
@@ -349,7 +348,7 @@ app.get('/api/summary', authMiddleware, (req, res) => {
 });
 
 // Get leaderboard for current month
-app.get('/api/leaderboard', authMiddleware, (req, res) => {
+app.get('/api/leaderboard', authMiddleware, async (req, res) => {
   const { month } = req.query;
   const now = new Date();
   const year = now.getFullYear();
@@ -358,11 +357,11 @@ app.get('/api/leaderboard', authMiddleware, (req, res) => {
   const selectedMonth = (month || currentMonth).slice(0, 7);
 
   try {
-    const baseStmt = db.prepare(
+    const baseRes = await dbQuery(
       `SELECT
-         u.id as userId,
+         u.id as "userId",
          COALESCE(u.username, u.name) as name,
-         IFNULL(SUM(t.hours), 0) AS totalHours,
+         COALESCE(SUM(t.hours), 0) AS "totalHours",
          CASE
            WHEN SUM(
              CASE t.productivity
@@ -373,7 +372,7 @@ app.get('/api/leaderboard', authMiddleware, (req, res) => {
                WHEN 'Did basically nothing' THEN 1 * t.hours
                ELSE 0
              END
-           ) = 0 OR IFNULL(SUM(t.hours), 0) = 0
+           ) = 0 OR COALESCE(SUM(t.hours), 0) = 0
              THEN NULL
            ELSE
              1.0 * SUM(
@@ -386,72 +385,70 @@ app.get('/api/leaderboard', authMiddleware, (req, res) => {
                  ELSE 0
                END
              ) / SUM(t.hours)
-         END AS avgProductivity
+         END AS "avgProductivity"
        FROM users u
        LEFT JOIN time_logs t
          ON u.id = t.user_id
-        AND substr(t.date, 1, 7) = ?
+        AND substr(t.date, 1, 7) = $1
        GROUP BY u.id, u.name
-       HAVING IFNULL(SUM(t.hours), 0) > 0
-       ORDER BY totalHours DESC, u.name ASC`
+       HAVING COALESCE(SUM(t.hours), 0) > 0
+       ORDER BY "totalHours" DESC, u.name ASC`,
+      [selectedMonth]
     );
 
-    const dateStmt = db.prepare(
-      `SELECT DISTINCT date
-       FROM time_logs
-       WHERE user_id = ? AND substr(date, 1, 7) = ?
-       ORDER BY date ASC`
-    );
-
-    const rows = baseStmt.all(selectedMonth);
+    const rows = baseRes.rows.map((r) => ({
+      userId: Number(r.userId),
+      name: r.name,
+      totalHours: Number(r.totalHours || 0),
+      avgProductivity: r.avgProductivity == null ? null : Number(r.avgProductivity)
+    }));
 
     const todayISO = getTodayISO();
 
-    const leaderboardWithStreak = rows.map((row) => {
-      const dates = dateStmt
-        .all(row.userId, selectedMonth)
-        .map((d) => d.date)
-        .filter(Boolean)
-        .sort();
+    const datesRes = await dbQuery(
+      `SELECT user_id, date
+       FROM (
+         SELECT DISTINCT user_id, date
+         FROM time_logs
+         WHERE substr(date, 1, 7) = $1
+       ) d
+       ORDER BY user_id ASC, date ASC`,
+      [selectedMonth]
+    );
 
-      let currentStreak = 0;
+    const datesByUser = new Map();
+    for (const r of datesRes.rows) {
+      const uid = Number(r.user_id);
+      const d = r.date;
+      if (!datesByUser.has(uid)) datesByUser.set(uid, []);
+      datesByUser.get(uid).push(d);
+    }
 
-      if (dates.length > 0) {
-        // Compute current streak ending at the most recent log date that is not in the future.
-        // Start from latest valid date and walk backwards while dates are consecutive.
-        const validDates = dates.filter((d) => d <= todayISO);
-        if (validDates.length > 0) {
-          let streak = 1;
-          let i = validDates.length - 1;
-          let prev = validDates[i];
+    const toDate = (iso) => new Date(iso + 'T00:00:00');
 
-          const toDate = (iso) => new Date(iso + 'T00:00:00');
+    const withStreak = rows.map((row) => {
+      const dates = (datesByUser.get(row.userId) || []).filter((d) => d && d <= todayISO);
+      if (dates.length === 0) return { ...row, streak: 0 };
 
-          while (i > 0) {
-            const curr = validDates[i - 1];
-            const prevDate = toDate(prev);
-            const currDate = toDate(curr);
-            const diffMs = prevDate - currDate;
-            const diffDays = diffMs / (1000 * 60 * 60 * 24);
-            if (diffDays === 1) {
-              streak += 1;
-              prev = curr;
-              i -= 1;
-            } else {
-              break;
-            }
-          }
-          currentStreak = streak;
+      let streak = 1;
+      let i = dates.length - 1;
+      let prev = dates[i];
+      while (i > 0) {
+        const curr = dates[i - 1];
+        const diffDays = (toDate(prev) - toDate(curr)) / (1000 * 60 * 60 * 24);
+        if (diffDays === 1) {
+          streak += 1;
+          prev = curr;
+          i -= 1;
+        } else {
+          break;
         }
       }
 
-      return {
-        ...row,
-        streak: currentStreak
-      };
+      return { ...row, streak };
     });
 
-    res.json({ month: selectedMonth, leaderboard: leaderboardWithStreak });
+    res.json({ month: selectedMonth, leaderboard: withStreak });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to load leaderboard.' });
@@ -459,7 +456,7 @@ app.get('/api/leaderboard', authMiddleware, (req, res) => {
 });
 
 // Delete a time log (same day only)
-app.delete('/api/logs/:id', authMiddleware, (req, res) => {
+app.delete('/api/logs/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
   const userId = req.user && req.user.userId;
   if (!userId) {
@@ -467,9 +464,8 @@ app.delete('/api/logs/:id', authMiddleware, (req, res) => {
   }
 
   try {
-    const log = db
-      .prepare('SELECT id, user_id, date FROM time_logs WHERE id = ?')
-      .get(id);
+    const logRes = await dbQuery('SELECT id, user_id, date FROM time_logs WHERE id = $1', [id]);
+    const log = logRes.rows[0];
 
     if (!log) {
       return res.status(404).json({ error: 'Log not found.' });
@@ -484,7 +480,7 @@ app.delete('/api/logs/:id', authMiddleware, (req, res) => {
       return res.status(400).json({ error: 'You can only delete logs from today.' });
     }
 
-    db.prepare('DELETE FROM time_logs WHERE id = ?').run(id);
+    await dbQuery('DELETE FROM time_logs WHERE id = $1', [id]);
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -500,9 +496,11 @@ app.post('/api/forgot-password', async (req, res) => {
   }
 
   try {
-    const user = db
-      .prepare('SELECT id, email, username FROM users WHERE email = ?')
-      .get(email.trim().toLowerCase());
+    const userRes = await dbQuery(
+      'SELECT id, email, username FROM users WHERE lower(email) = $1',
+      [email.trim().toLowerCase()]
+    );
+    const user = userRes.rows[0];
 
     if (!user) {
       // Do not reveal whether email exists
@@ -511,10 +509,11 @@ app.post('/api/forgot-password', async (req, res) => {
 
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60); // 1 hour
-    db.prepare(
+    await dbQuery(
       `INSERT INTO password_resets (user_id, token, expires_at)
-       VALUES (?, ?, ?)`
-    ).run(user.id, token, expiresAt.toISOString());
+       VALUES ($1, $2, $3)`,
+      [user.id, token, expiresAt.toISOString()]
+    );
 
     const baseUrl = process.env.APP_BASE_URL || `http://localhost:${PORT}`;
     const resetUrl = `${baseUrl}/reset.html?token=${token}`;
@@ -538,20 +537,20 @@ app.post('/api/forgot-password', async (req, res) => {
 });
 
 // Reset password using token
-app.post('/api/reset-password', (req, res) => {
+app.post('/api/reset-password', async (req, res) => {
   const { token, password } = req.body || {};
   if (!token || !password) {
     return res.status(400).json({ error: 'Token and password are required.' });
   }
 
   try {
-    const row = db
-      .prepare(
-        `SELECT id, user_id, expires_at
-         FROM password_resets
-         WHERE token = ?`
-      )
-      .get(token);
+    const rowRes = await dbQuery(
+      `SELECT id, user_id, expires_at
+       FROM password_resets
+       WHERE token = $1`,
+      [token]
+    );
+    const row = rowRes.rows[0];
 
     if (!row) {
       return res.status(400).json({ error: 'Invalid or expired token.' });
@@ -561,8 +560,9 @@ app.post('/api/reset-password', (req, res) => {
       return res.status(400).json({ error: 'Token has expired.' });
     }
 
-    db.prepare('UPDATE users SET password = ? WHERE id = ?').run(password, row.user_id);
-    db.prepare('DELETE FROM password_resets WHERE id = ?').run(row.id);
+    const hashed = bcrypt.hashSync(password, 10);
+    await dbQuery('UPDATE users SET password = $1 WHERE id = $2', [hashed, row.user_id]);
+    await dbQuery('DELETE FROM password_resets WHERE id = $1', [row.id]);
 
     res.json({ ok: true });
   } catch (err) {
@@ -573,7 +573,7 @@ app.post('/api/reset-password', (req, res) => {
 
 // Admin: delete all users who do not have a @mcmaster.ca email
 // Optionally protected by ADMIN_TOKEN environment variable (sent via X-Admin-Token header)
-app.delete('/api/admin/purge-non-mac-users', (req, res) => {
+app.delete('/api/admin/purge-non-mac-users', async (req, res) => {
   const requiredToken = process.env.ADMIN_TOKEN;
   if (requiredToken) {
     const provided = req.headers['x-admin-token'];
@@ -583,9 +583,11 @@ app.delete('/api/admin/purge-non-mac-users', (req, res) => {
   }
 
   try {
-    const nonMacUsers = db
-      .prepare('SELECT id FROM users WHERE lower(email) NOT LIKE ?')
-      .all(`%${MAC_EMAIL_DOMAIN}`);
+    const nonMacUsersRes = await dbQuery(
+      'SELECT id FROM users WHERE lower(email) NOT LIKE $1',
+      [`%${MAC_EMAIL_DOMAIN}`]
+    );
+    const nonMacUsers = nonMacUsersRes.rows;
 
     if (!nonMacUsers.length) {
       return res.json({
@@ -596,26 +598,19 @@ app.delete('/api/admin/purge-non-mac-users', (req, res) => {
     }
 
     const ids = nonMacUsers.map((u) => u.id);
-    const placeholders = ids.map(() => '?').join(',');
-
-    const deleteLogsStmt = db.prepare(
-      `DELETE FROM time_logs WHERE user_id IN (${placeholders})`
+    const logsResult = await dbQuery('DELETE FROM time_logs WHERE user_id = ANY($1::bigint[])', [
+      ids
+    ]);
+    const resetsResult = await dbQuery(
+      'DELETE FROM password_resets WHERE user_id = ANY($1::bigint[])',
+      [ids]
     );
-    const deleteResetsStmt = db.prepare(
-      `DELETE FROM password_resets WHERE user_id IN (${placeholders})`
-    );
-    const deleteUsersStmt = db.prepare(
-      `DELETE FROM users WHERE id IN (${placeholders})`
-    );
-
-    const logsResult = deleteLogsStmt.run(...ids);
-    const resetsResult = deleteResetsStmt.run(...ids);
-    const usersResult = deleteUsersStmt.run(...ids);
+    const usersResult = await dbQuery('DELETE FROM users WHERE id = ANY($1::bigint[])', [ids]);
 
     res.json({
-      deletedUsers: usersResult.changes || 0,
-      deletedLogs: logsResult.changes || 0,
-      deletedPasswordResets: resetsResult.changes || 0
+      deletedUsers: usersResult.rowCount || 0,
+      deletedLogs: logsResult.rowCount || 0,
+      deletedPasswordResets: resetsResult.rowCount || 0
     });
   } catch (err) {
     console.error(err);
@@ -625,7 +620,7 @@ app.delete('/api/admin/purge-non-mac-users', (req, res) => {
 
 // Admin: delete all users and related data
 // Protected by the same ADMIN_TOKEN mechanism as above
-app.delete('/api/admin/delete-all-users', (req, res) => {
+app.delete('/api/admin/delete-all-users', async (req, res) => {
   const requiredToken = process.env.ADMIN_TOKEN;
   if (requiredToken) {
     const provided = req.headers['x-admin-token'];
@@ -635,14 +630,14 @@ app.delete('/api/admin/delete-all-users', (req, res) => {
   }
 
   try {
-    const deleteLogs = db.prepare('DELETE FROM time_logs').run();
-    const deleteResets = db.prepare('DELETE FROM password_resets').run();
-    const deleteUsers = db.prepare('DELETE FROM users').run();
+    const deleteLogs = await dbQuery('DELETE FROM time_logs');
+    const deleteResets = await dbQuery('DELETE FROM password_resets');
+    const deleteUsers = await dbQuery('DELETE FROM users');
 
     res.json({
-      deletedUsers: deleteUsers.changes || 0,
-      deletedLogs: deleteLogs.changes || 0,
-      deletedPasswordResets: deleteResets.changes || 0
+      deletedUsers: deleteUsers.rowCount || 0,
+      deletedLogs: deleteLogs.rowCount || 0,
+      deletedPasswordResets: deleteResets.rowCount || 0
     });
   } catch (err) {
     console.error(err);
@@ -655,7 +650,15 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+(async () => {
+  try {
+    await initDb();
+    app.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  } catch (err) {
+    console.error('Failed to initialize database.', err);
+    process.exit(1);
+  }
+})();
 
