@@ -4,9 +4,13 @@ const cors = require('cors');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const Database = require('better-sqlite3');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const MAC_EMAIL_DOMAIN = '@mcmaster.ca';
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 
 // Middleware
 app.use(cors());
@@ -111,6 +115,33 @@ function getTodayISO() {
   return `${year}-${month}-${day}`;
 }
 
+function createToken(user) {
+  return jwt.sign(
+    {
+      userId: user.id,
+      username: user.username,
+      email: user.email
+    },
+    JWT_SECRET,
+    { expiresIn: '7d' }
+  );
+}
+
+function authMiddleware(req, res, next) {
+  const header = req.headers.authorization || '';
+  if (!header.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized.' });
+  }
+  const token = header.slice(7);
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    req.user = payload;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid or expired token.' });
+  }
+}
+
 // API routes
 
 // Signup
@@ -120,14 +151,28 @@ app.post('/api/signup', (req, res) => {
     return res.status(400).json({ error: 'Username, email, and password are required.' });
   }
 
+  const cleanUsername = username.trim();
+  const cleanEmail = email.trim().toLowerCase();
+
+  if (!cleanEmail.endsWith(MAC_EMAIL_DOMAIN)) {
+    return res
+      .status(400)
+      .json({ error: `You must sign up with a ${MAC_EMAIL_DOMAIN} email address.` });
+  }
+
   try {
+    const hashed = bcrypt.hashSync(password, 10);
     const stmt = db.prepare(
       'INSERT INTO users (name, username, email, password) VALUES (?, ?, ?, ?)'
     );
-    const cleanUsername = username.trim();
-    const cleanEmail = email.trim().toLowerCase();
-    const info = stmt.run(cleanUsername, cleanUsername, cleanEmail, password);
-    res.json({ userId: info.lastInsertRowid, username: cleanUsername, email: cleanEmail });
+    const info = stmt.run(cleanUsername, cleanUsername, cleanEmail, hashed);
+    const user = {
+      id: info.lastInsertRowid,
+      username: cleanUsername,
+      email: cleanEmail
+    };
+    const token = createToken(user);
+    res.json({ userId: user.id, username: user.username, email: user.email, token });
   } catch (err) {
     if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
       return res.status(409).json({ error: 'Username or email already in use.' });
@@ -152,13 +197,24 @@ app.post('/api/login', (req, res) => {
       : db.prepare('SELECT id, username, email, password FROM users WHERE username = ?');
 
     const user = stmt.get(isEmail ? trimmed.toLowerCase() : trimmed);
-    if (!user || user.password !== password) {
+    if (!user) {
       return res.status(401).json({ error: 'Invalid credentials.' });
     }
-    res.json({
-      userId: user.id,
+    const ok = bcrypt.compareSync(password, user.password);
+    if (!ok) {
+      return res.status(401).json({ error: 'Invalid credentials.' });
+    }
+    const safeUser = {
+      id: user.id,
       username: user.username || trimmed,
       email: user.email
+    };
+    const token = createToken(safeUser);
+    res.json({
+      userId: safeUser.id,
+      username: safeUser.username,
+      email: safeUser.email,
+      token
     });
   } catch (err) {
     console.error(err);
@@ -167,10 +223,13 @@ app.post('/api/login', (req, res) => {
 });
 
 // Add a time log
-app.post('/api/logs', (req, res) => {
-  const { userId, arrival, departure, productivity } = req.body || {};
+app.post('/api/logs', authMiddleware, (req, res) => {
+  const { arrival, departure, productivity } = req.body || {};
+  const userId = req.user && req.user.userId;
   if (!userId || !arrival || !departure || !productivity) {
-    return res.status(400).json({ error: 'userId, arrival, departure, and productivity are required.' });
+    return res
+      .status(400)
+      .json({ error: 'userId, arrival, departure, and productivity are required.' });
   }
 
   const allowedProductivity = new Set([
@@ -237,7 +296,7 @@ app.post('/api/logs', (req, res) => {
 });
 
 // Get current month summary for a user
-app.get('/api/summary', (req, res) => {
+app.get('/api/summary', authMiddleware, (req, res) => {
   const { userId, month } = req.query;
   if (!userId) {
     return res.status(400).json({ error: 'userId is required.' });
@@ -273,7 +332,7 @@ app.get('/api/summary', (req, res) => {
 });
 
 // Get leaderboard for current month
-app.get('/api/leaderboard', (req, res) => {
+app.get('/api/leaderboard', authMiddleware, (req, res) => {
   const { month } = req.query;
   const now = new Date();
   const year = now.getFullYear();
@@ -287,21 +346,36 @@ app.get('/api/leaderboard', (req, res) => {
          u.id as userId,
          COALESCE(u.username, u.name) as name,
          IFNULL(SUM(t.hours), 0) AS totalHours,
-         AVG(
-           CASE t.productivity
-             WHEN 'Super locked' THEN 5
-             WHEN 'Locked' THEN 4
-             WHEN 'Studying with a side of yap' THEN 3
-             WHEN 'Yap with a side of study' THEN 2
-             WHEN 'Did basically nothing' THEN 1
-             ELSE NULL
-           END
-         ) AS avgProductivity
+         CASE
+           WHEN SUM(
+             CASE t.productivity
+               WHEN 'Super locked' THEN 5 * t.hours
+               WHEN 'Locked' THEN 4 * t.hours
+               WHEN 'Studying with a side of yap' THEN 3 * t.hours
+               WHEN 'Yap with a side of study' THEN 2 * t.hours
+               WHEN 'Did basically nothing' THEN 1 * t.hours
+               ELSE 0
+             END
+           ) = 0 OR IFNULL(SUM(t.hours), 0) = 0
+             THEN NULL
+           ELSE
+             1.0 * SUM(
+               CASE t.productivity
+                 WHEN 'Super locked' THEN 5 * t.hours
+                 WHEN 'Locked' THEN 4 * t.hours
+                 WHEN 'Studying with a side of yap' THEN 3 * t.hours
+                 WHEN 'Yap with a side of study' THEN 2 * t.hours
+                 WHEN 'Did basically nothing' THEN 1 * t.hours
+                 ELSE 0
+               END
+             ) / SUM(t.hours)
+         END AS avgProductivity
        FROM users u
        LEFT JOIN time_logs t
          ON u.id = t.user_id
         AND substr(t.date, 1, 7) = ?
        GROUP BY u.id, u.name
+       HAVING IFNULL(SUM(t.hours), 0) > 0
        ORDER BY totalHours DESC, u.name ASC`
     );
     const rows = stmt.all(selectedMonth);
@@ -313,11 +387,11 @@ app.get('/api/leaderboard', (req, res) => {
 });
 
 // Delete a time log (same day only)
-app.delete('/api/logs/:id', (req, res) => {
+app.delete('/api/logs/:id', authMiddleware, (req, res) => {
   const { id } = req.params;
-  const { userId } = req.body || {};
+  const userId = req.user && req.user.userId;
   if (!userId) {
-    return res.status(400).json({ error: 'userId is required.' });
+    return res.status(401).json({ error: 'Unauthorized.' });
   }
 
   try {
@@ -422,6 +496,58 @@ app.post('/api/reset-password', (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to reset password.' });
+  }
+});
+
+// Admin: delete all users who do not have a @mcmaster.ca email
+// Optionally protected by ADMIN_TOKEN environment variable (sent via X-Admin-Token header)
+app.delete('/api/admin/purge-non-mac-users', (req, res) => {
+  const requiredToken = process.env.ADMIN_TOKEN;
+  if (requiredToken) {
+    const provided = req.headers['x-admin-token'];
+    if (!provided || provided !== requiredToken) {
+      return res.status(403).json({ error: 'Forbidden.' });
+    }
+  }
+
+  try {
+    const nonMacUsers = db
+      .prepare('SELECT id FROM users WHERE lower(email) NOT LIKE ?')
+      .all(`%${MAC_EMAIL_DOMAIN}`);
+
+    if (!nonMacUsers.length) {
+      return res.json({
+        deletedUsers: 0,
+        deletedLogs: 0,
+        deletedPasswordResets: 0
+      });
+    }
+
+    const ids = nonMacUsers.map((u) => u.id);
+    const placeholders = ids.map(() => '?').join(',');
+
+    const deleteLogsStmt = db.prepare(
+      `DELETE FROM time_logs WHERE user_id IN (${placeholders})`
+    );
+    const deleteResetsStmt = db.prepare(
+      `DELETE FROM password_resets WHERE user_id IN (${placeholders})`
+    );
+    const deleteUsersStmt = db.prepare(
+      `DELETE FROM users WHERE id IN (${placeholders})`
+    );
+
+    const logsResult = deleteLogsStmt.run(...ids);
+    const resetsResult = deleteResetsStmt.run(...ids);
+    const usersResult = deleteUsersStmt.run(...ids);
+
+    res.json({
+      deletedUsers: usersResult.changes || 0,
+      deletedLogs: logsResult.changes || 0,
+      deletedPasswordResets: resetsResult.changes || 0
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to purge non-Mac users.' });
   }
 });
 

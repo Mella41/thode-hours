@@ -144,10 +144,16 @@ tabLogin.addEventListener('click', () => switchTab(false));
 tabSignup.addEventListener('click', () => switchTab(true));
 
 async function api(path, options = {}) {
+  const session = loadSession();
+  const headers = {
+    'Content-Type': 'application/json'
+  };
+  if (session && session.token) {
+    headers.Authorization = `Bearer ${session.token}`;
+  }
+
   const res = await fetch(API_BASE + path, {
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers,
     ...options
   });
   const text = await res.text();
@@ -286,7 +292,6 @@ logForm.addEventListener('submit', async (e) => {
     await api('/api/logs', {
       method: 'POST',
       body: JSON.stringify({
-        userId: user.userId,
         arrival,
         departure,
         productivity
@@ -352,8 +357,7 @@ function renderSummary(summary) {
         if (!currentUser) return;
         try {
           await api(`/api/logs/${encodeURIComponent(log.id)}`, {
-            method: 'DELETE',
-            body: JSON.stringify({ userId: currentUser.userId })
+            method: 'DELETE'
           });
           await refreshSummaryAndLeaderboard();
         } catch (err) {
