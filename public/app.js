@@ -250,18 +250,25 @@ logForm.addEventListener('submit', async (e) => {
 
   const startMin = ah * 60 + am;
   const endMin = dh * 60 + dm;
-  const now = new Date();
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
 
-  if (endMin > nowMinutes || startMin > nowMinutes) {
-    logError.textContent = 'You cannot log time in the future.';
-    return;
+  const selectedDate = logDate.value;
+  const today = getCurrentDateISO();
+
+  // Only enforce "future time" rule when logging for today.
+  if (selectedDate === today) {
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    if (endMin > nowMinutes || startMin > nowMinutes) {
+      logError.textContent = 'You cannot log time in the future.';
+      return;
+    }
   }
 
   try {
     await api('/api/logs', {
       method: 'POST',
       body: JSON.stringify({
+        date: logDate.value,
         arrival,
         departure,
         productivity

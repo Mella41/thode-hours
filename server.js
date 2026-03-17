@@ -224,7 +224,7 @@ app.post('/api/login', (req, res) => {
 
 // Add a time log
 app.post('/api/logs', authMiddleware, (req, res) => {
-  const { arrival, departure, productivity } = req.body || {};
+  const { date: rawDate, arrival, departure, productivity } = req.body || {};
   const userId = req.user && req.user.userId;
   if (!userId || !arrival || !departure || !productivity) {
     return res
@@ -250,18 +250,35 @@ app.post('/api/logs', authMiddleware, (req, res) => {
     return res.status(400).json({ error: 'Invalid time format.' });
   }
 
-  const now = new Date();
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  if (startMin > nowMinutes || endMin > nowMinutes) {
-    return res.status(400).json({ error: 'You cannot log time in the future.' });
+  const today = getTodayISO();
+
+  // Validate date: default to today, but allow logging for past dates.
+  let date = today;
+  if (rawDate && typeof rawDate === 'string') {
+    // Expect YYYY-MM-DD
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+      return res.status(400).json({ error: 'Invalid date format.' });
+    }
+    // Do not allow dates in the future (string compare works for ISO dates)
+    if (rawDate > today) {
+      return res.status(400).json({ error: 'You cannot log time in the future.' });
+    }
+    date = rawDate;
+  }
+
+  // Only enforce "time in the future" rule when logging for today.
+  if (date === today) {
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    if (startMin > nowMinutes || endMin > nowMinutes) {
+      return res.status(400).json({ error: 'You cannot log time in the future.' });
+    }
   }
 
   const hours = computeHours(arrival, departure);
   if (hours === null) {
     return res.status(400).json({ error: 'Invalid times. Departure must be after arrival in HH:MM format.' });
   }
-
-  const date = getTodayISO();
 
   try {
     // Prevent overlapping logs for the same user and day
