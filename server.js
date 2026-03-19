@@ -102,6 +102,15 @@ function getTodayISO() {
   return `${year}-${month}-${day}`;
 }
 
+function getYesterdayISO() {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  const year = date.getFullYear();
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const day = date.getDate().toString().padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function createToken(user) {
   return jwt.sign(
     {
@@ -238,17 +247,16 @@ app.post('/api/logs', authMiddleware, async (req, res) => {
   }
 
   const today = getTodayISO();
+  const yesterday = getYesterdayISO();
 
-  // Validate date: default to today, but allow logging for past dates.
+  // Validate date: default to today, but only allow today or yesterday.
   let date = today;
   if (rawDate && typeof rawDate === 'string') {
-    // Expect YYYY-MM-DD
     if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
       return res.status(400).json({ error: 'Invalid date format.' });
     }
-    // Do not allow dates in the future (string compare works for ISO dates)
-    if (rawDate > today) {
-      return res.status(400).json({ error: 'You cannot log time in the future.' });
+    if (rawDate !== today && rawDate !== yesterday) {
+      return res.status(400).json({ error: 'You can only log hours for today or yesterday.' });
     }
     date = rawDate;
   }
@@ -455,7 +463,7 @@ app.get('/api/leaderboard', authMiddleware, async (req, res) => {
   }
 });
 
-// Delete a time log (same day only)
+// Delete a time log (today or yesterday only)
 app.delete('/api/logs/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
   const userId = req.user && req.user.userId;
@@ -476,8 +484,9 @@ app.delete('/api/logs/:id', authMiddleware, async (req, res) => {
     }
 
     const today = getTodayISO();
-    if (log.date !== today) {
-      return res.status(400).json({ error: 'You can only delete logs from today.' });
+    const yesterday = getYesterdayISO();
+    if (log.date !== today && log.date !== yesterday) {
+      return res.status(400).json({ error: 'You can only delete logs from today or yesterday.' });
     }
 
     await dbQuery('DELETE FROM time_logs WHERE id = $1', [id]);

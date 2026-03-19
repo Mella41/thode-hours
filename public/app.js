@@ -61,6 +61,15 @@ function getCurrentDateISO() {
   return `${year}-${month}-${day}`;
 }
 
+function getYesterdayDateISO() {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function saveSession(user) {
   localStorage.setItem('thodeUser', JSON.stringify(user));
 }
@@ -91,20 +100,34 @@ function updateLogsHeader() {
 
 function updateLogFormState() {
   const today = getCurrentDateISO();
-  logDate.value = today;
-  logDate.min = today;
-  logDate.max = today;
+  const yesterday = getYesterdayDateISO();
+  const currentMonth = getCurrentMonthISO();
+  const yesterdayMonth = yesterday.slice(0, 7);
+  const isAllowedMonth = selectedMonth === currentMonth || selectedMonth === yesterdayMonth;
 
-  const isCurrentMonth = selectedMonth === getCurrentMonthISO();
-  const disabled = !isCurrentMonth;
+  const allowedDates = [yesterday, today].filter((date) => date.slice(0, 7) === selectedMonth);
+  const disabled = !isAllowedMonth || allowedDates.length === 0;
 
-  [logArrival, logDeparture, logProductivity].forEach((input) => {
+  if (disabled) {
+    logDate.value = today;
+    logDate.min = today;
+    logDate.max = today;
+  } else {
+    const currentValue = logDate.value;
+    logDate.min = allowedDates[0];
+    logDate.max = allowedDates[allowedDates.length - 1];
+    logDate.value = allowedDates.includes(currentValue)
+      ? currentValue
+      : allowedDates[allowedDates.length - 1];
+  }
+
+  [logDate, logArrival, logDeparture, logProductivity].forEach((input) => {
     input.disabled = disabled;
   });
   logSubmitBtn.disabled = disabled;
 
   if (disabled) {
-    logLockMessage.textContent = 'You can only add hours while viewing the current month.';
+    logLockMessage.textContent = 'You can only add hours for today or yesterday.';
   } else {
     logLockMessage.textContent = '';
   }
