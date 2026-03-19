@@ -348,6 +348,20 @@ tbody tr:hover {
   cursor: pointer;
 }
 
+.leader-top {
+  background: #fff8dc !important;
+}
+
+.leader-top:hover {
+  background: #ffefb3 !important;
+}
+
+.rank-crown {
+  margin-left: 0.15rem;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
 .btn-small {
   padding: 0.25rem 0.6rem;
   font-size: 0.75rem;

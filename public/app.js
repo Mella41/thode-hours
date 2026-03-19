@@ -382,6 +382,9 @@ function renderLeaderboard(data, currentUserId) {
   leaderboardBody.innerHTML = '';
   data.leaderboard.forEach((row, index) => {
     const tr = document.createElement('tr');
+    if (index === 0) {
+      tr.classList.add('leader-top');
+    }
     if (row.userId === currentUserId) {
       tr.style.fontWeight = '600';
     }
@@ -393,6 +396,15 @@ function renderLeaderboard(data, currentUserId) {
     const streakTd = document.createElement('td');
 
     rankTd.textContent = index + 1;
+    if (index === 0) {
+      const crown = document.createElement('span');
+      crown.className = 'rank-crown';
+      crown.textContent = '👑';
+      crown.setAttribute('aria-label', 'Top rank');
+      crown.title = 'Top rank';
+      rankTd.appendChild(document.createTextNode(' '));
+      rankTd.appendChild(crown);
+    }
     nameTd.textContent = row.name;
     hoursTd.textContent = (row.totalHours || 0).toFixed(2);
     if (row.avgProductivity == null) {
