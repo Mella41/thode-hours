@@ -37,10 +37,8 @@ const presenceToggleBtn = document.getElementById('presence-toggle-btn');
 const presenceStatus = document.getElementById('presence-status');
 const presenceList = document.getElementById('presence-list');
 const openAchievementsBtn = document.getElementById('open-achievements-btn');
-const achievementsModal = document.getElementById('achievements-modal');
-const closeAchievementsBtn = document.getElementById('close-achievements-btn');
-const achievementsModalSubtitle = document.getElementById('achievements-modal-subtitle');
-const achievementsModalContent = document.getElementById('achievements-modal-content');
+const achievementsExplorerSection = document.getElementById('achievements-explorer-section');
+const achievementsExplorerGrid = document.getElementById('achievements-explorer-grid');
 
 let selectedMonth = null; // in "YYYY-MM" format
 let currentUser = null;
@@ -471,12 +469,7 @@ function isUnlocked(def, summary) {
 
 function renderAchievementsModal() {
   if (!latestRenderedSummary) return;
-
-  const targetName =
-    !currentUser || viewedUserId === currentUser.userId ? 'You' : viewedUserName || 'This user';
-  achievementsModalSubtitle.textContent = `${targetName} - monthly and past achievements`;
-
-  achievementsModalContent.innerHTML = '';
+  achievementsExplorerGrid.innerHTML = '';
 
   TIERS.forEach((tier) => {
     const defs = ACHIEVEMENT_DEFS.filter((a) => a.tier === tier);
@@ -502,19 +495,8 @@ function renderAchievementsModal() {
     });
 
     section.appendChild(ul);
-    achievementsModalContent.appendChild(section);
+    achievementsExplorerGrid.appendChild(section);
   });
-}
-
-function openAchievementsModal() {
-  renderAchievementsModal();
-  achievementsModal.classList.remove('hidden');
-  achievementsModal.setAttribute('aria-hidden', 'false');
-}
-
-function closeAchievementsModal() {
-  achievementsModal.classList.add('hidden');
-  achievementsModal.setAttribute('aria-hidden', 'true');
 }
 
 function renderPresence() {
@@ -622,6 +604,7 @@ async function refreshSummaryAndLeaderboard() {
       loadLeaderboard()
     ]);
     renderSummary(summary);
+    renderAchievementsModal();
     renderLeaderboard(leaderboard, currentUser.userId);
     await loadPresence();
   } catch (err) {
@@ -644,16 +627,8 @@ function initLoggedIn(user) {
 }
 
 openAchievementsBtn.addEventListener('click', () => {
-  if (!currentUser) return;
-  openAchievementsModal();
-});
-
-closeAchievementsBtn.addEventListener('click', closeAchievementsModal);
-
-achievementsModal.addEventListener('click', (e) => {
-  if (e.target === achievementsModal) {
-    closeAchievementsModal();
-  }
+  if (!currentUser || !achievementsExplorerSection) return;
+  achievementsExplorerSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
 presenceToggleBtn.addEventListener('click', async () => {
