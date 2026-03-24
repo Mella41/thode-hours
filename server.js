@@ -233,7 +233,10 @@ function evaluateAchievementKeys(logs, todayISO) {
     if (hours >= 24) straight24 = true;
 
     if (endMin != null && endMin >= 23 * 60) after11pm = true;
-    if (endMin != null && endMin >= 2 * 60 && endMin < 12 * 60) after2am = true;
+    // Night Shift only if a session overlaps 2:00-3:00 AM.
+    if (startMin != null && endMin != null && overlapsWindow(startMin, endMin, 2 * 60, 3 * 60)) {
+      after2am = true;
+    }
     if (startMin != null && endMin != null && overlapsWindow(startMin, endMin, 3 * 60, 5 * 60)) {
       villainWindow = true;
     }

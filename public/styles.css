@@ -409,44 +409,6 @@ tbody tr:hover {
   margin-bottom: 0.35rem;
 }
 
-.modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.45);
-  display: grid;
-  place-items: center;
-  padding: 1rem;
-  z-index: 1000;
-}
-
-.modal-card {
-  width: min(860px, 100%);
-  max-height: 85vh;
-  overflow: auto;
-  background: #ffffff;
-  border-radius: 1rem;
-  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.25);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  padding: 1rem 1.1rem;
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.modal-header h3 {
-  margin: 0;
-}
-
-.achievements-modal-content {
-  margin-top: 0.75rem;
-  display: grid;
-  gap: 0.9rem;
-}
-
 .ach-tier-section {
   border: 1px solid rgba(148, 163, 184, 0.45);
   border-radius: 0.7rem;
@@ -469,6 +431,34 @@ tbody tr:hover {
 
 .ach-locked {
   opacity: 0.55;
+}
+
+.achievements-explorer-grid {
+  margin-top: 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+#achievements-explorer-section.section-flash {
+  animation: sectionFlash 1.1s ease;
+}
+
+@keyframes sectionFlash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45);
+    border-color: rgba(34, 197, 94, 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+    border-color: rgba(15, 23, 42, 0.05);
+  }
+}
+
+@media (max-width: 900px) {
+  .achievements-explorer-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .btn-small {

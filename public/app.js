@@ -632,6 +632,10 @@ if (openAchievementsBtn) {
   openAchievementsBtn.addEventListener('click', () => {
     if (!currentUser || !achievementsExplorerSection) return;
     achievementsExplorerSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    achievementsExplorerSection.classList.remove('section-flash');
+    // Restart animation if user clicks multiple times
+    void achievementsExplorerSection.offsetWidth;
+    achievementsExplorerSection.classList.add('section-flash');
   });
 }
 
