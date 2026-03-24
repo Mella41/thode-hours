@@ -230,15 +230,6 @@ function evaluateAchievementKeys(logs, todayISO) {
 
     if (score >= 3) level3ByDay.set(date, (level3ByDay.get(date) || 0) + hours);
     if (score >= 4) lockedByDay.set(date, (lockedByDay.get(date) || 0) + hours);
-  let maxLevel3DayHours = 0;
-  for (const h of level3ByDay.values()) {
-    if (h > maxLevel3DayHours) maxLevel3DayHours = h;
-  }
-
-  let maxLockedDayHours = 0;
-  for (const h of lockedByDay.values()) {
-    if (h > maxLockedDayHours) maxLockedDayHours = h;
-  }
 
     if (hours >= 24) straight24 = true;
 
@@ -250,6 +241,16 @@ function evaluateAchievementKeys(logs, todayISO) {
     if (startMin != null && endMin != null && overlapsWindow(startMin, endMin, 3 * 60, 5 * 60)) {
       villainWindow = true;
     }
+  }
+
+  let maxLevel3DayHours = 0;
+  for (const h of level3ByDay.values()) {
+    if (h > maxLevel3DayHours) maxLevel3DayHours = h;
+  }
+
+  let maxLockedDayHours = 0;
+  for (const h of lockedByDay.values()) {
+    if (h > maxLockedDayHours) maxLockedDayHours = h;
   }
 
   for (const [date, hours] of dayHours.entries()) {
