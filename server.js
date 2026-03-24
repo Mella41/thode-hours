@@ -308,6 +308,65 @@ function mapAchievementRows(rows) {
     .filter(Boolean);
 }
 
+async function syncAchievementsForMonth(userId, month) {
+  const monthLogsRes = await dbQuery(
+    `SELECT date, arrival, departure, hours, productivity
+     FROM time_logs
+     WHERE user_id = $1 AND substr(date, 1, 7) = $2`,
+    [userId, month]
+  );
+
+  const shouldHaveKeys = new Set(evaluateAchievementKeys(monthLogsRes.rows, getTodayISO()));
+
+  const existingRes = await dbQuery(
+    `SELECT achievement_key, month, unlocked_at
+     FROM user_achievements
+     WHERE user_id = $1 AND month = $2`,
+    [userId, month]
+  );
+  const existingRows = existingRes.rows;
+  const existingKeys = new Set(existingRows.map((r) => r.achievement_key));
+
+  const newlyUnlocked = [];
+  for (const key of shouldHaveKeys) {
+    if (!existingKeys.has(key)) {
+      const ins = await dbQuery(
+        `INSERT INTO user_achievements (user_id, month, achievement_key)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (user_id, month, achievement_key) DO NOTHING
+         RETURNING achievement_key, month, unlocked_at`,
+        [userId, month, key]
+      );
+      if (ins.rowCount > 0) {
+        newlyUnlocked.push(...mapAchievementRows(ins.rows));
+      }
+    }
+  }
+
+  const removed = [];
+  for (const row of existingRows) {
+    if (!shouldHaveKeys.has(row.achievement_key)) {
+      await dbQuery(
+        `DELETE FROM user_achievements
+         WHERE user_id = $1 AND month = $2 AND achievement_key = $3`,
+        [userId, month, row.achievement_key]
+      );
+      const def = ACHIEVEMENT_BY_KEY.get(row.achievement_key);
+      if (def) {
+        removed.push({
+          key: def.key,
+          tier: def.tier,
+          title: def.title,
+          subtitle: def.subtitle,
+          month
+        });
+      }
+    }
+  }
+
+  return { newlyUnlocked, removed };
+}
+
 function createToken(user) {
   return jwt.sign(
     {
@@ -509,27 +568,7 @@ app.post('/api/logs', authMiddleware, async (req, res) => {
       [userId, date, arrival, departure, hours, productivity]
     );
     const month = date.slice(0, 7);
-    const monthLogsRes = await dbQuery(
-      `SELECT date, arrival, departure, hours, productivity
-       FROM time_logs
-       WHERE user_id = $1 AND substr(date, 1, 7) = $2`,
-      [userId, month]
-    );
-    const achievedKeys = evaluateAchievementKeys(monthLogsRes.rows, getTodayISO());
-
-    const unlockedNow = [];
-    for (const key of achievedKeys) {
-      const ins = await dbQuery(
-        `INSERT INTO user_achievements (user_id, month, achievement_key)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (user_id, month, achievement_key) DO NOTHING
-         RETURNING achievement_key, month, unlocked_at`,
-        [userId, month, key]
-      );
-      if (ins.rowCount > 0) {
-        unlockedNow.push(...mapAchievementRows(ins.rows));
-      }
-    }
+    const syncResult = await syncAchievementsForMonth(userId, month);
 
     res.json({
       id: inserted.rows[0].id,
@@ -539,7 +578,7 @@ app.post('/api/logs', authMiddleware, async (req, res) => {
       departure,
       hours,
       productivity,
-      newAchievements: unlockedNow
+      newAchievements: syncResult.newlyUnlocked
     });
   } catch (err) {
     console.error(err);
@@ -747,7 +786,9 @@ app.delete('/api/logs/:id', authMiddleware, async (req, res) => {
     }
 
     await dbQuery('DELETE FROM time_logs WHERE id = $1', [id]);
-    res.json({ success: true });
+    const month = String(log.date).slice(0, 7);
+    const syncResult = await syncAchievementsForMonth(userId, month);
+    res.json({ success: true, removedAchievements: syncResult.removed });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to delete log.' });
