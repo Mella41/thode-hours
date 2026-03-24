@@ -50,11 +50,11 @@ let latestRenderedSummary = null;
 const ACHIEVEMENT_DEFS = [
   { key: 'welcome_to_thode', tier: 'D', icon: '🟤', title: 'Welcome to Thode', subtitle: 'Unlock a 3-day streak' },
   { key: 'getting_comfortable', tier: 'D', icon: '🟤', title: 'Getting Comfortable', subtitle: 'Spend 3 hours at Thode in one day' },
-  { key: 'warm_up_session', tier: 'D', icon: '🟤', title: 'Warm-Up Session', subtitle: 'Productivity level 3+ for 4 hours' },
+  { key: 'warm_up_session', tier: 'D', icon: '🟤', title: 'Warm-Up Session', subtitle: 'Productivity level 3 for 4+ hours in one day' },
   { key: 'in_the_zone', tier: 'C', icon: '⚪', title: 'In the Zone', subtitle: 'Reach a 5-day streak' },
   { key: 'half_day_warrior', tier: 'C', icon: '⚪', title: 'Half-Day Warrior', subtitle: 'Spend 5 hours at Thode in one day' },
   { key: 'academic_night_owl', tier: 'C', icon: '⚪', title: 'Academic Night Owl', subtitle: 'Stay at Thode past 11 PM' },
-  { key: 'steady_grind', tier: 'C', icon: '⚪', title: 'Steady Grind', subtitle: 'Locked or better for 3+ hours' },
+  { key: 'steady_grind', tier: 'C', icon: '⚪', title: 'Steady Grind', subtitle: 'Locked (level 4) for 5+ hours in one day' },
   { key: 'weekly_regular', tier: 'B', icon: '🔵', title: 'Weekly Regular', subtitle: 'Reach a 7-day streak' },
   { key: 'committed', tier: 'B', icon: '🔵', title: 'Committed', subtitle: 'Spend 7 hours at Thode in one day' },
   { key: 'weekend_scholar', tier: 'B', icon: '🔵', title: 'Weekend Scholar', subtitle: 'Study 4+ hours on a weekend day' },

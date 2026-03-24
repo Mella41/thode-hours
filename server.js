@@ -123,11 +123,11 @@ function getYesterdayISO() {
 const ACHIEVEMENTS = [
   { key: 'welcome_to_thode', tier: 'D', title: 'Welcome to Thode', subtitle: 'Unlock a 3-day streak' },
   { key: 'getting_comfortable', tier: 'D', title: 'Getting Comfortable', subtitle: 'Spend 3 hours at Thode in one day' },
-  { key: 'warm_up_session', tier: 'D', title: 'Warm-Up Session', subtitle: 'Productivity level 3+ for 4 hours' },
+  { key: 'warm_up_session', tier: 'D', title: 'Warm-Up Session', subtitle: 'Achieved productivity level 3 for 4+ hours in one day' },
   { key: 'in_the_zone', tier: 'C', title: 'In the Zone', subtitle: 'Reach a 5-day streak' },
   { key: 'half_day_warrior', tier: 'C', title: 'Half-Day Warrior', subtitle: 'Spend 5 hours at Thode in one day' },
   { key: 'academic_night_owl', tier: 'C', title: 'Academic Night Owl', subtitle: 'Stay at Thode past 11 PM' },
-  { key: 'steady_grind', tier: 'C', title: 'Steady Grind', subtitle: 'Locked or better for 3+ hours' },
+  { key: 'steady_grind', tier: 'C', title: 'Steady Grind', subtitle: 'Locked (level 4) for 5+ hours in one day' },
   { key: 'weekly_regular', tier: 'B', title: 'Weekly Regular', subtitle: 'Reach a 7-day streak' },
   { key: 'committed', tier: 'B', title: 'Committed', subtitle: 'Spend 7 hours at Thode in one day' },
   { key: 'weekend_scholar', tier: 'B', title: 'Weekend Scholar', subtitle: 'Study 4+ hours on a weekend day' },
@@ -204,8 +204,8 @@ function evaluateAchievementKeys(logs, todayISO) {
   const dayHours = new Map();
   const weekHours = new Map();
   let maxDayHours = 0;
-  let level3PlusHours = 0;
-  let lockedPlusHours = 0;
+  const level3ByDay = new Map();
+  const lockedByDay = new Map();
   let after11pm = false;
   let after2am = false;
   let villainWindow = false;
@@ -228,8 +228,18 @@ function evaluateAchievementKeys(logs, todayISO) {
     const weekKey = getWeekKey(date);
     weekHours.set(weekKey, (weekHours.get(weekKey) || 0) + hours);
 
-    if (score >= 3) level3PlusHours += hours;
-    if (score >= 4) lockedPlusHours += hours;
+    if (score >= 3) level3ByDay.set(date, (level3ByDay.get(date) || 0) + hours);
+    if (score >= 4) lockedByDay.set(date, (lockedByDay.get(date) || 0) + hours);
+  let maxLevel3DayHours = 0;
+  for (const h of level3ByDay.values()) {
+    if (h > maxLevel3DayHours) maxLevel3DayHours = h;
+  }
+
+  let maxLockedDayHours = 0;
+  for (const h of lockedByDay.values()) {
+    if (h > maxLockedDayHours) maxLockedDayHours = h;
+  }
+
     if (hours >= 24) straight24 = true;
 
     if (endMin != null && endMin >= 23 * 60) after11pm = true;
@@ -261,11 +271,11 @@ function evaluateAchievementKeys(logs, todayISO) {
 
   if (streak >= 3) achieved.add('welcome_to_thode');
   if (maxDayHours >= 3) achieved.add('getting_comfortable');
-  if (level3PlusHours >= 4) achieved.add('warm_up_session');
+  if (maxLevel3DayHours >= 4) achieved.add('warm_up_session');
   if (streak >= 5) achieved.add('in_the_zone');
   if (maxDayHours >= 5) achieved.add('half_day_warrior');
   if (after11pm) achieved.add('academic_night_owl');
-  if (lockedPlusHours >= 3) achieved.add('steady_grind');
+  if (maxLockedDayHours >= 5) achieved.add('steady_grind');
   if (streak >= 7) achieved.add('weekly_regular');
   if (maxDayHours >= 7) achieved.add('committed');
   if (weekendScholar) achieved.add('weekend_scholar');
