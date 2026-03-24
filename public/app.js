@@ -486,13 +486,21 @@ function renderAchievementsModal() {
     const ul = document.createElement('ul');
     ul.className = 'ach-tier-list';
 
-    defs.forEach((def) => {
+    const unlockedDefs = defs.filter((def) => isUnlocked(def, latestRenderedSummary));
+    const lockedCount = defs.length - unlockedDefs.length;
+
+    unlockedDefs.forEach((def) => {
       const li = document.createElement('li');
-      const unlocked = isUnlocked(def, latestRenderedSummary);
-      if (!unlocked) li.classList.add('ach-locked');
-      li.textContent = `${def.icon} ${def.title} - ${def.subtitle}${unlocked ? ' (Unlocked)' : ''}`;
+      li.textContent = `${def.icon} ${def.title} - ${def.subtitle}`;
       ul.appendChild(li);
     });
+
+    for (let i = 0; i < lockedCount; i += 1) {
+      const li = document.createElement('li');
+      li.className = 'ach-redacted';
+      li.textContent = '🔒 Locked achievement';
+      ul.appendChild(li);
+    }
 
     section.appendChild(ul);
     achievementsExplorerGrid.appendChild(section);

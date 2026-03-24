@@ -433,6 +433,20 @@ tbody tr:hover {
   opacity: 0.55;
 }
 
+.ach-redacted {
+  color: #6b7280;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(148, 163, 184, 0.12),
+    rgba(148, 163, 184, 0.12) 6px,
+    rgba(148, 163, 184, 0.2) 6px,
+    rgba(148, 163, 184, 0.2) 12px
+  );
+  border-radius: 0.35rem;
+  padding: 0.15rem 0.35rem;
+  width: fit-content;
+}
+
 .achievements-explorer-grid {
   margin-top: 0.75rem;
   display: grid;
