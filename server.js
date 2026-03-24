@@ -11,6 +11,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const MAC_EMAIL_DOMAIN = '@mcmaster.ca';
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
+let dbReady = false;
 
 // Middleware
 app.use(cors());
@@ -61,13 +62,21 @@ async function initDb() {
       expires_at TIMESTAMPTZ NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
-  `);
 
-  await dbQuery(
-    `UPDATE users
-     SET username = name
-     WHERE (username IS NULL OR username = '') AND name IS NOT NULL`
-  );
+    CREATE TABLE IF NOT EXISTS user_achievements (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      month TEXT NOT NULL,
+      achievement_key TEXT NOT NULL,
+      unlocked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (user_id, month, achievement_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS current_presence (
+      user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      checked_in_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
 }
 
 // Mail transporter (configure via environment)
@@ -111,6 +120,181 @@ function getYesterdayISO() {
   return `${year}-${month}-${day}`;
 }
 
+const ACHIEVEMENTS = [
+  { key: 'welcome_to_thode', tier: 'D', title: 'Welcome to Thode', subtitle: 'Unlock a 3-day streak' },
+  { key: 'getting_comfortable', tier: 'D', title: 'Getting Comfortable', subtitle: 'Spend 3 hours at Thode in one day' },
+  { key: 'warm_up_session', tier: 'D', title: 'Warm-Up Session', subtitle: 'Productivity level 3+ for 4 hours' },
+  { key: 'in_the_zone', tier: 'C', title: 'In the Zone', subtitle: 'Reach a 5-day streak' },
+  { key: 'half_day_warrior', tier: 'C', title: 'Half-Day Warrior', subtitle: 'Spend 5 hours at Thode in one day' },
+  { key: 'academic_night_owl', tier: 'C', title: 'Academic Night Owl', subtitle: 'Stay at Thode past 11 PM' },
+  { key: 'steady_grind', tier: 'C', title: 'Steady Grind', subtitle: 'Locked or better for 3+ hours' },
+  { key: 'weekly_regular', tier: 'B', title: 'Weekly Regular', subtitle: 'Reach a 7-day streak' },
+  { key: 'committed', tier: 'B', title: 'Committed', subtitle: 'Spend 7 hours at Thode in one day' },
+  { key: 'weekend_scholar', tier: 'B', title: 'Weekend Scholar', subtitle: 'Study 4+ hours on a weekend day' },
+  { key: 'almost_full_time_thoder', tier: 'A', title: 'Almost a Full-Time Thoder', subtitle: 'Spend 30 hours in one week' },
+  { key: 'now_you_have_to_ace_it', tier: 'A', title: 'Now You Have to Ace It', subtitle: 'Spend 12 hours at Thode in one day' },
+  { key: 'full_time_thoder', tier: 'S', title: 'Full-Time Thoder', subtitle: 'Spend 40 hours in one week' },
+  { key: 'night_shift', tier: 'S', title: 'The Night Shift', subtitle: 'Stay at Thode past 2:00 AM' },
+  { key: 'employee_of_the_month', tier: 'SS', title: 'Thode Employee of the Month', subtitle: '44+ hours in one week' },
+  { key: 'villain_origin_story', tier: 'SS', title: 'Villain Origin Story', subtitle: 'Be at Thode between 3:00-5:00 AM' },
+  { key: 'go_home_please', tier: 'SSS', title: 'Go Home. Please.', subtitle: '18-day streak' },
+  { key: 'academic_victim', tier: 'SSS', title: 'Academic Victim', subtitle: '24 hours straight at Thode' }
+];
+
+const ACHIEVEMENT_BY_KEY = new Map(ACHIEVEMENTS.map((a) => [a.key, a]));
+
+function getProductivityScore(productivity) {
+  switch (productivity) {
+    case 'Super locked':
+      return 5;
+    case 'Locked':
+      return 4;
+    case 'Studying with a side of yap':
+      return 3;
+    case 'Yap with a side of study':
+      return 2;
+    case 'Did basically nothing':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function getDateOnly(isoDate) {
+  return new Date(isoDate + 'T00:00:00');
+}
+
+function getCurrentStreak(dates, todayISO) {
+  const validDates = [...new Set(dates)].filter((d) => d <= todayISO).sort();
+  if (validDates.length === 0) return 0;
+  let streak = 1;
+  let i = validDates.length - 1;
+  let prev = validDates[i];
+  while (i > 0) {
+    const curr = validDates[i - 1];
+    const diffDays = (getDateOnly(prev) - getDateOnly(curr)) / (1000 * 60 * 60 * 24);
+    if (diffDays === 1) {
+      streak += 1;
+      prev = curr;
+      i -= 1;
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
+function getWeekKey(isoDate) {
+  const d = getDateOnly(isoDate);
+  const day = d.getDay(); // 0 (Sun) .. 6 (Sat)
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + mondayOffset);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+function overlapsWindow(startMin, endMin, winStart, winEnd) {
+  return startMin < winEnd && endMin > winStart;
+}
+
+function evaluateAchievementKeys(logs, todayISO) {
+  const dates = [];
+  const dayHours = new Map();
+  const weekHours = new Map();
+  let maxDayHours = 0;
+  let level3PlusHours = 0;
+  let lockedPlusHours = 0;
+  let after11pm = false;
+  let after2am = false;
+  let villainWindow = false;
+  let weekendScholar = false;
+  let straight24 = false;
+
+  for (const log of logs) {
+    const date = log.date;
+    const hours = Number(log.hours || 0);
+    const score = getProductivityScore(log.productivity);
+    const startMin = parseTimeToMinutes(log.arrival);
+    const endMin = parseTimeToMinutes(log.departure);
+
+    dates.push(date);
+
+    const daily = (dayHours.get(date) || 0) + hours;
+    dayHours.set(date, daily);
+    if (daily > maxDayHours) maxDayHours = daily;
+
+    const weekKey = getWeekKey(date);
+    weekHours.set(weekKey, (weekHours.get(weekKey) || 0) + hours);
+
+    if (score >= 3) level3PlusHours += hours;
+    if (score >= 4) lockedPlusHours += hours;
+    if (hours >= 24) straight24 = true;
+
+    if (endMin != null && endMin >= 23 * 60) after11pm = true;
+    if (endMin != null && endMin >= 2 * 60 && endMin < 12 * 60) after2am = true;
+    if (startMin != null && endMin != null && overlapsWindow(startMin, endMin, 3 * 60, 5 * 60)) {
+      villainWindow = true;
+    }
+  }
+
+  for (const [date, hours] of dayHours.entries()) {
+    const d = getDateOnly(date);
+    const day = d.getDay();
+    if ((day === 0 || day === 6) && hours >= 4) {
+      weekendScholar = true;
+      break;
+    }
+  }
+
+  let maxWeekHours = 0;
+  for (const h of weekHours.values()) {
+    if (h > maxWeekHours) maxWeekHours = h;
+  }
+
+  const streak = getCurrentStreak(dates, todayISO);
+  const achieved = new Set();
+
+  if (streak >= 3) achieved.add('welcome_to_thode');
+  if (maxDayHours >= 3) achieved.add('getting_comfortable');
+  if (level3PlusHours >= 4) achieved.add('warm_up_session');
+  if (streak >= 5) achieved.add('in_the_zone');
+  if (maxDayHours >= 5) achieved.add('half_day_warrior');
+  if (after11pm) achieved.add('academic_night_owl');
+  if (lockedPlusHours >= 3) achieved.add('steady_grind');
+  if (streak >= 7) achieved.add('weekly_regular');
+  if (maxDayHours >= 7) achieved.add('committed');
+  if (weekendScholar) achieved.add('weekend_scholar');
+  if (maxWeekHours >= 30) achieved.add('almost_full_time_thoder');
+  if (maxDayHours >= 12) achieved.add('now_you_have_to_ace_it');
+  if (maxWeekHours >= 40) achieved.add('full_time_thoder');
+  if (after2am) achieved.add('night_shift');
+  if (maxWeekHours >= 44) achieved.add('employee_of_the_month');
+  if (villainWindow) achieved.add('villain_origin_story');
+  if (streak >= 18) achieved.add('go_home_please');
+  if (straight24) achieved.add('academic_victim');
+
+  return [...achieved];
+}
+
+function mapAchievementRows(rows) {
+  return rows
+    .map((row) => {
+      const def = ACHIEVEMENT_BY_KEY.get(row.achievement_key);
+      if (!def) return null;
+      return {
+        key: def.key,
+        tier: def.tier,
+        title: def.title,
+        subtitle: def.subtitle,
+        month: row.month,
+        unlockedAt: row.unlocked_at
+      };
+    })
+    .filter(Boolean);
+}
+
 function createToken(user) {
   return jwt.sign(
     {
@@ -137,6 +321,17 @@ function authMiddleware(req, res, next) {
     return res.status(401).json({ error: 'Invalid or expired token.' });
   }
 }
+
+// Keep a lightweight probe endpoint for uptime checks and deployment health.
+app.get('/healthz', (_req, res) => {
+  res.json({ ok: true, dbReady, uptimeSeconds: Math.floor(process.uptime()) });
+});
+
+// During cold starts, let static pages load while API waits for DB readiness.
+app.use('/api', (req, res, next) => {
+  if (dbReady) return next();
+  return res.status(503).json({ error: 'Server is warming up. Please retry in a few seconds.' });
+});
 
 // API routes
 
@@ -300,6 +495,29 @@ app.post('/api/logs', authMiddleware, async (req, res) => {
        RETURNING id`,
       [userId, date, arrival, departure, hours, productivity]
     );
+    const month = date.slice(0, 7);
+    const monthLogsRes = await dbQuery(
+      `SELECT date, arrival, departure, hours, productivity
+       FROM time_logs
+       WHERE user_id = $1 AND substr(date, 1, 7) = $2`,
+      [userId, month]
+    );
+    const achievedKeys = evaluateAchievementKeys(monthLogsRes.rows, getTodayISO());
+
+    const unlockedNow = [];
+    for (const key of achievedKeys) {
+      const ins = await dbQuery(
+        `INSERT INTO user_achievements (user_id, month, achievement_key)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (user_id, month, achievement_key) DO NOTHING
+         RETURNING achievement_key, month, unlocked_at`,
+        [userId, month, key]
+      );
+      if (ins.rowCount > 0) {
+        unlockedNow.push(...mapAchievementRows(ins.rows));
+      }
+    }
+
     res.json({
       id: inserted.rows[0].id,
       userId,
@@ -307,7 +525,8 @@ app.post('/api/logs', authMiddleware, async (req, res) => {
       arrival,
       departure,
       hours,
-      productivity
+      productivity,
+      newAchievements: unlockedNow
     });
   } catch (err) {
     console.error(err);
@@ -344,10 +563,37 @@ app.get('/api/summary', authMiddleware, async (req, res) => {
       [userId, selectedMonth]
     );
 
+    const currentAchRes = await dbQuery(
+      `SELECT achievement_key, month, unlocked_at
+       FROM user_achievements
+       WHERE user_id = $1 AND month = $2
+       ORDER BY unlocked_at DESC`,
+      [userId, selectedMonth]
+    );
+
+    const pastAchRes = await dbQuery(
+      `SELECT achievement_key, month, unlocked_at
+       FROM user_achievements
+       WHERE user_id = $1 AND month <> $2
+       ORDER BY month DESC, unlocked_at DESC`,
+      [userId, selectedMonth]
+    );
+
+    const pastByMonth = new Map();
+    for (const ach of mapAchievementRows(pastAchRes.rows)) {
+      if (!pastByMonth.has(ach.month)) pastByMonth.set(ach.month, []);
+      pastByMonth.get(ach.month).push(ach);
+    }
+
     res.json({
       month: selectedMonth,
       totalHours: Number(totalRes.rows[0].total || 0),
-      logs: logsRes.rows.map((r) => ({ ...r, hours: Number(r.hours) }))
+      logs: logsRes.rows.map((r) => ({ ...r, hours: Number(r.hours) })),
+      achievementsCurrentMonth: mapAchievementRows(currentAchRes.rows),
+      pastAchievements: [...pastByMonth.entries()].map(([month, achievements]) => ({
+        month,
+        achievements
+      }))
     });
   } catch (err) {
     console.error(err);
@@ -654,17 +900,73 @@ app.delete('/api/admin/delete-all-users', async (req, res) => {
   }
 });
 
+// Presence: who is currently at Thode
+app.get('/api/presence', authMiddleware, async (req, res) => {
+  try {
+    const rows = await dbQuery(
+      `SELECT p.user_id AS "userId",
+              p.checked_in_at AS "checkedInAt",
+              COALESCE(u.username, u.name) AS name
+       FROM current_presence p
+       JOIN users u ON u.id = p.user_id
+       ORDER BY p.checked_in_at ASC`
+    );
+    const userId = Number(req.user.userId);
+    res.json({
+      users: rows.rows.map((r) => ({
+        userId: Number(r.userId),
+        name: r.name,
+        checkedInAt: r.checkedInAt
+      })),
+      isCheckedIn: rows.rows.some((r) => Number(r.userId) === userId)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load current presence.' });
+  }
+});
+
+app.post('/api/presence/check-in', authMiddleware, async (req, res) => {
+  try {
+    const userId = Number(req.user.userId);
+    await dbQuery(
+      `INSERT INTO current_presence (user_id, checked_in_at)
+       VALUES ($1, now())
+       ON CONFLICT (user_id) DO UPDATE SET checked_in_at = EXCLUDED.checked_in_at`,
+      [userId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to check in.' });
+  }
+});
+
+app.delete('/api/presence/check-out', authMiddleware, async (req, res) => {
+  try {
+    const userId = Number(req.user.userId);
+    await dbQuery('DELETE FROM current_presence WHERE user_id = $1', [userId]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to check out.' });
+  }
+});
+
 // Fallback to SPA
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+});
+
 (async () => {
   try {
     await initDb();
-    app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
+    dbReady = true;
+    console.log('Database initialized.');
   } catch (err) {
     console.error('Failed to initialize database.', err);
     process.exit(1);

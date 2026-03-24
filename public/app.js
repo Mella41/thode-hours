@@ -30,11 +30,18 @@ const logsSubtitle = document.getElementById('logs-subtitle');
 const yourTotal = document.getElementById('your-total');
 const logsTableBody = document.getElementById('logs-table-body');
 const leaderboardBody = document.getElementById('leaderboard-body');
+const achievementsTitle = document.getElementById('achievements-title');
+const achievementsCurrent = document.getElementById('achievements-current');
+const achievementsPast = document.getElementById('achievements-past');
+const presenceToggleBtn = document.getElementById('presence-toggle-btn');
+const presenceStatus = document.getElementById('presence-status');
+const presenceList = document.getElementById('presence-list');
 
 let selectedMonth = null; // in "YYYY-MM" format
 let currentUser = null;
 let viewedUserId = null;
 let viewedUserName = '';
+let presenceState = { isCheckedIn: false, users: [] };
 
 function getCurrentMonthISO() {
   const now = new Date();
@@ -92,9 +99,11 @@ function updateLogsHeader() {
   if (!viewedUserId || viewedUserId === currentUser.userId) {
     logsTitle.textContent = 'Your month at Thode';
     logsSubtitle.textContent = '';
+    achievementsTitle.textContent = 'Achievements this month';
   } else {
     logsTitle.textContent = 'Logs at Thode';
     logsSubtitle.textContent = `Showing logs for ${viewedUserName}`;
+    achievementsTitle.textContent = `Achievements this month (${viewedUserName})`;
   }
 }
 
@@ -288,7 +297,7 @@ logForm.addEventListener('submit', async (e) => {
   }
 
   try {
-    await api('/api/logs', {
+    const result = await api('/api/logs', {
       method: 'POST',
       body: JSON.stringify({
         date: logDate.value,
@@ -301,6 +310,11 @@ logForm.addEventListener('submit', async (e) => {
     logArrival.value = '';
     logDeparture.value = '';
     logProductivity.value = 'Super locked';
+    const unlocked = result.newAchievements || [];
+    if (unlocked.length > 0) {
+      const details = unlocked.map((a) => `Tier ${a.tier} achievement: ${a.title}`).join('\n');
+      alert(`Congratulations! You've unlocked a new achievement.\n${details}`);
+    }
     await refreshSummaryAndLeaderboard();
   } catch (err) {
     logError.textContent = err.message || 'Failed to save log.';
@@ -376,6 +390,76 @@ function renderSummary(summary) {
     tr.appendChild(actionsTd);
     logsTableBody.appendChild(tr);
   });
+
+  achievementsCurrent.innerHTML = '';
+  const current = summary.achievementsCurrentMonth || [];
+  if (current.length === 0) {
+    const li = document.createElement('li');
+    li.textContent = 'No achievements yet this month.';
+    achievementsCurrent.appendChild(li);
+  } else {
+    current.forEach((a) => {
+      const li = document.createElement('li');
+      li.textContent = `Tier ${a.tier}: ${a.title}`;
+      achievementsCurrent.appendChild(li);
+    });
+  }
+
+  achievementsPast.innerHTML = '';
+  const past = summary.pastAchievements || [];
+  if (past.length === 0) {
+    achievementsPast.textContent = 'No past achievements yet.';
+  } else {
+    past.forEach((group) => {
+      const box = document.createElement('div');
+      box.className = 'achievements-month';
+
+      const month = document.createElement('div');
+      month.className = 'achievements-month-title';
+      month.textContent = group.month;
+      box.appendChild(month);
+
+      const ul = document.createElement('ul');
+      ul.className = 'achievements-list';
+      (group.achievements || []).forEach((a) => {
+        const li = document.createElement('li');
+        li.textContent = `Tier ${a.tier}: ${a.title}`;
+        ul.appendChild(li);
+      });
+      box.appendChild(ul);
+      achievementsPast.appendChild(box);
+    });
+  }
+}
+
+function renderPresence() {
+  presenceToggleBtn.textContent = presenceState.isCheckedIn ? 'Check out' : 'Check in';
+  presenceStatus.textContent = presenceState.isCheckedIn
+    ? 'You are currently checked in.'
+    : 'Not checked in right now.';
+
+  presenceList.innerHTML = '';
+  if (!presenceState.users || presenceState.users.length === 0) {
+    const li = document.createElement('li');
+    li.textContent = 'No one is at Thode right now.';
+    presenceList.appendChild(li);
+    return;
+  }
+
+  presenceState.users.forEach((u) => {
+    const li = document.createElement('li');
+    li.textContent = u.name;
+    presenceList.appendChild(li);
+  });
+}
+
+async function loadPresence() {
+  const data = await api('/api/presence');
+  presenceState = {
+    isCheckedIn: !!data.isCheckedIn,
+    users: data.users || []
+  };
+  renderPresence();
 }
 
 function renderLeaderboard(data, currentUserId) {
@@ -454,6 +538,7 @@ async function refreshSummaryAndLeaderboard() {
     ]);
     renderSummary(summary);
     renderLeaderboard(leaderboard, currentUser.userId);
+    await loadPresence();
   } catch (err) {
     console.error(err);
   }
@@ -472,6 +557,20 @@ function initLoggedIn(user) {
   showApp();
   refreshSummaryAndLeaderboard();
 }
+
+presenceToggleBtn.addEventListener('click', async () => {
+  if (!currentUser) return;
+  try {
+    if (presenceState.isCheckedIn) {
+      await api('/api/presence/check-out', { method: 'DELETE' });
+    } else {
+      await api('/api/presence/check-in', { method: 'POST' });
+    }
+    await loadPresence();
+  } catch (err) {
+    alert(err.message || 'Failed to update presence.');
+  }
+});
 
 window.addEventListener('DOMContentLoaded', () => {
   selectedMonth = getCurrentMonthISO();

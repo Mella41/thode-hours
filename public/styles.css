@@ -362,6 +362,47 @@ tbody tr:hover {
   line-height: 1;
 }
 
+.achievements-wrap {
+  margin-top: 0.9rem;
+  border-top: 1px dashed rgba(148, 163, 184, 0.5);
+  padding-top: 0.75rem;
+}
+
+.achievements-wrap h4 {
+  margin: 0.3rem 0 0.45rem;
+  font-size: 0.9rem;
+}
+
+.achievements-list,
+.presence-list {
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.achievements-list li,
+.presence-list li {
+  margin-bottom: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.achievements-past {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.achievements-month {
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.55rem;
+  background: #f9fafb;
+}
+
+.achievements-month-title {
+  font-size: 0.8rem;
+  color: #4b5563;
+  margin-bottom: 0.35rem;
+}
+
 .btn-small {
   padding: 0.25rem 0.6rem;
   font-size: 0.75rem;
