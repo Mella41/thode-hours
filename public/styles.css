@@ -379,6 +379,13 @@ tbody tr:hover {
   font-size: 0.9rem;
 }
 
+.achievements-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
 .achievements-list,
 .presence-list {
   margin: 0;

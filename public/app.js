@@ -33,6 +33,7 @@ const leaderboardBody = document.getElementById('leaderboard-body');
 const achievementsTitle = document.getElementById('achievements-title');
 const achievementsCurrent = document.getElementById('achievements-current');
 const achievementsPast = document.getElementById('achievements-past');
+const deleteAchievementsBtn = document.getElementById('delete-achievements-btn');
 const presenceToggleBtn = document.getElementById('presence-toggle-btn');
 const presenceStatus = document.getElementById('presence-status');
 const presenceList = document.getElementById('presence-list');
@@ -69,6 +70,7 @@ const ACHIEVEMENT_DEFS = [
 ];
 
 const TIERS = ['D', 'C', 'B', 'A', 'S', 'SS', 'SSS'];
+const ACHIEVEMENT_ADMIN_USERNAMES = new Set(['mella#1']);
 
 function getCurrentMonthISO() {
   const now = new Date();
@@ -121,6 +123,11 @@ function clearSession() {
   localStorage.removeItem('thodeUser');
 }
 
+function isAchievementAdmin(user) {
+  const username = String(user?.username || '').trim().toLowerCase();
+  return ACHIEVEMENT_ADMIN_USERNAMES.has(username);
+}
+
 function updateLogsHeader() {
   if (!currentUser) return;
   if (!viewedUserId || viewedUserId === currentUser.userId) {
@@ -131,6 +138,15 @@ function updateLogsHeader() {
     logsTitle.textContent = 'Logs at Thode';
     logsSubtitle.textContent = `Showing logs for ${viewedUserName}`;
     achievementsTitle.textContent = `Achievements this month (${viewedUserName})`;
+  }
+}
+
+function updateAchievementAdminUi() {
+  if (!deleteAchievementsBtn) return;
+  if (currentUser && isAchievementAdmin(currentUser)) {
+    deleteAchievementsBtn.classList.remove('hidden');
+  } else {
+    deleteAchievementsBtn.classList.add('hidden');
   }
 }
 
@@ -172,11 +188,13 @@ function updateLogFormState() {
 function showAuth() {
   authSection.classList.remove('hidden');
   appSection.classList.add('hidden');
+  updateAchievementAdminUi();
 }
 
 function showApp() {
   authSection.classList.add('hidden');
   appSection.classList.remove('hidden');
+  updateAchievementAdminUi();
 }
 
 function switchTab(toSignup) {
@@ -273,8 +291,35 @@ signupForm.addEventListener('submit', async (e) => {
 
 logoutBtn.addEventListener('click', () => {
   clearSession();
+  currentUser = null;
   showAuth();
 });
+
+if (deleteAchievementsBtn) {
+  deleteAchievementsBtn.addEventListener('click', async () => {
+    if (!currentUser || !isAchievementAdmin(currentUser)) return;
+    const targetUserId = viewedUserId || currentUser.userId;
+    const targetMonth = selectedMonth || getCurrentMonthISO();
+    const confirmDelete = window.confirm(
+      `Delete achievements for user ${targetUserId} in ${targetMonth}?`
+    );
+    if (!confirmDelete) return;
+
+    try {
+      const result = await api('/api/admin/achievements', {
+        method: 'DELETE',
+        body: JSON.stringify({
+          userId: targetUserId,
+          month: targetMonth
+        })
+      });
+      alert(`Deleted ${result.deletedAchievements || 0} achievements.`);
+      await refreshSummaryAndLeaderboard();
+    } catch (err) {
+      alert(err.message || 'Failed to delete achievements.');
+    }
+  });
+}
 
 logForm.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -632,6 +677,7 @@ function initLoggedIn(user) {
   viewedUserName = user.name;
   updateLogFormState();
   updateLogsHeader();
+  updateAchievementAdminUi();
   showApp();
   refreshSummaryAndLeaderboard();
 }
