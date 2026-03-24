@@ -36,12 +36,41 @@ const achievementsPast = document.getElementById('achievements-past');
 const presenceToggleBtn = document.getElementById('presence-toggle-btn');
 const presenceStatus = document.getElementById('presence-status');
 const presenceList = document.getElementById('presence-list');
+const openAchievementsBtn = document.getElementById('open-achievements-btn');
+const achievementsModal = document.getElementById('achievements-modal');
+const closeAchievementsBtn = document.getElementById('close-achievements-btn');
+const achievementsModalSubtitle = document.getElementById('achievements-modal-subtitle');
+const achievementsModalContent = document.getElementById('achievements-modal-content');
 
 let selectedMonth = null; // in "YYYY-MM" format
 let currentUser = null;
 let viewedUserId = null;
 let viewedUserName = '';
 let presenceState = { isCheckedIn: false, users: [] };
+let latestRenderedSummary = null;
+
+const ACHIEVEMENT_DEFS = [
+  { key: 'welcome_to_thode', tier: 'D', icon: '🟤', title: 'Welcome to Thode', subtitle: 'Unlock a 3-day streak' },
+  { key: 'getting_comfortable', tier: 'D', icon: '🟤', title: 'Getting Comfortable', subtitle: 'Spend 3 hours at Thode in one day' },
+  { key: 'warm_up_session', tier: 'D', icon: '🟤', title: 'Warm-Up Session', subtitle: 'Productivity level 3+ for 4 hours' },
+  { key: 'in_the_zone', tier: 'C', icon: '⚪', title: 'In the Zone', subtitle: 'Reach a 5-day streak' },
+  { key: 'half_day_warrior', tier: 'C', icon: '⚪', title: 'Half-Day Warrior', subtitle: 'Spend 5 hours at Thode in one day' },
+  { key: 'academic_night_owl', tier: 'C', icon: '⚪', title: 'Academic Night Owl', subtitle: 'Stay at Thode past 11 PM' },
+  { key: 'steady_grind', tier: 'C', icon: '⚪', title: 'Steady Grind', subtitle: 'Locked or better for 3+ hours' },
+  { key: 'weekly_regular', tier: 'B', icon: '🔵', title: 'Weekly Regular', subtitle: 'Reach a 7-day streak' },
+  { key: 'committed', tier: 'B', icon: '🔵', title: 'Committed', subtitle: 'Spend 7 hours at Thode in one day' },
+  { key: 'weekend_scholar', tier: 'B', icon: '🔵', title: 'Weekend Scholar', subtitle: 'Study 4+ hours on a weekend day' },
+  { key: 'almost_full_time_thoder', tier: 'A', icon: '🟣', title: 'Almost a Full-Time Thoder', subtitle: 'Spend 30 hours at Thode in one week' },
+  { key: 'now_you_have_to_ace_it', tier: 'A', icon: '🟣', title: 'Now You Have to Ace It', subtitle: 'Spend 12 hours at Thode in one day' },
+  { key: 'full_time_thoder', tier: 'S', icon: '🏅', title: 'Full-Time Thoder', subtitle: 'Spend 40 hours at Thode in one week' },
+  { key: 'night_shift', tier: 'S', icon: '🌙', title: 'The Night Shift', subtitle: 'Stay at Thode past 2:00 AM' },
+  { key: 'employee_of_the_month', tier: 'SS', icon: '🔥', title: 'Thode Employee of the Month', subtitle: '44+ hours in a week' },
+  { key: 'villain_origin_story', tier: 'SS', icon: '😈', title: 'Villain Origin Story', subtitle: 'Be at Thode between 3-5 AM' },
+  { key: 'go_home_please', tier: 'SSS', icon: '🚨', title: 'Go Home. Please.', subtitle: '18-day streak' },
+  { key: 'academic_victim', tier: 'SSS', icon: '🚨', title: 'Academic Victim', subtitle: '24 hours straight at Thode' }
+];
+
+const TIERS = ['D', 'C', 'B', 'A', 'S', 'SS', 'SSS'];
 
 function getCurrentMonthISO() {
   const now = new Date();
@@ -341,6 +370,7 @@ async function loadLeaderboard() {
 }
 
 function renderSummary(summary) {
+  latestRenderedSummary = summary;
   const total = summary.totalHours || 0;
   yourTotal.textContent = `Total this month: ${total.toFixed(2)} hours`;
 
@@ -430,6 +460,61 @@ function renderSummary(summary) {
       achievementsPast.appendChild(box);
     });
   }
+}
+
+function isUnlocked(def, summary) {
+  const current = summary.achievementsCurrentMonth || [];
+  const past = summary.pastAchievements || [];
+  if (current.some((a) => a.key === def.key)) return true;
+  return past.some((group) => (group.achievements || []).some((a) => a.key === def.key));
+}
+
+function renderAchievementsModal() {
+  if (!latestRenderedSummary) return;
+
+  const targetName =
+    !currentUser || viewedUserId === currentUser.userId ? 'You' : viewedUserName || 'This user';
+  achievementsModalSubtitle.textContent = `${targetName} - monthly and past achievements`;
+
+  achievementsModalContent.innerHTML = '';
+
+  TIERS.forEach((tier) => {
+    const defs = ACHIEVEMENT_DEFS.filter((a) => a.tier === tier);
+    if (defs.length === 0) return;
+
+    const section = document.createElement('section');
+    section.className = 'ach-tier-section';
+
+    const title = document.createElement('h4');
+    title.className = 'ach-tier-title';
+    title.textContent = `Tier ${tier}`;
+    section.appendChild(title);
+
+    const ul = document.createElement('ul');
+    ul.className = 'ach-tier-list';
+
+    defs.forEach((def) => {
+      const li = document.createElement('li');
+      const unlocked = isUnlocked(def, latestRenderedSummary);
+      if (!unlocked) li.classList.add('ach-locked');
+      li.textContent = `${def.icon} ${def.title} - ${def.subtitle}${unlocked ? ' (Unlocked)' : ''}`;
+      ul.appendChild(li);
+    });
+
+    section.appendChild(ul);
+    achievementsModalContent.appendChild(section);
+  });
+}
+
+function openAchievementsModal() {
+  renderAchievementsModal();
+  achievementsModal.classList.remove('hidden');
+  achievementsModal.setAttribute('aria-hidden', 'false');
+}
+
+function closeAchievementsModal() {
+  achievementsModal.classList.add('hidden');
+  achievementsModal.setAttribute('aria-hidden', 'true');
 }
 
 function renderPresence() {
@@ -557,6 +642,19 @@ function initLoggedIn(user) {
   showApp();
   refreshSummaryAndLeaderboard();
 }
+
+openAchievementsBtn.addEventListener('click', () => {
+  if (!currentUser) return;
+  openAchievementsModal();
+});
+
+closeAchievementsBtn.addEventListener('click', closeAchievementsModal);
+
+achievementsModal.addEventListener('click', (e) => {
+  if (e.target === achievementsModal) {
+    closeAchievementsModal();
+  }
+});
 
 presenceToggleBtn.addEventListener('click', async () => {
   if (!currentUser) return;

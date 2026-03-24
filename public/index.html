@@ -91,7 +91,10 @@
                 <button id="month-next" class="btn subtle btn-icon" type="button">&#x25B6;</button>
               </div>
             </div>
-            <button id="logout-btn" class="btn subtle" type="button">Log out</button>
+            <div class="header-actions">
+              <button id="open-achievements-btn" class="btn subtle" type="button">Achievements</button>
+              <button id="logout-btn" class="btn subtle" type="button">Log out</button>
+            </div>
           </div>
 
           <div class="layout">
@@ -187,6 +190,17 @@
       <footer class="footer">
         <small>#thodedemon</small>
       </footer>
+    </div>
+
+    <div id="achievements-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Achievements</h3>
+          <button id="close-achievements-btn" class="btn subtle btn-small" type="button">Close</button>
+        </div>
+        <p class="hint" id="achievements-modal-subtitle"></p>
+        <div id="achievements-modal-content" class="achievements-modal-content"></div>
+      </div>
     </div>
 
     <script src="app.js"></script>
