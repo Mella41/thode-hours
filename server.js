@@ -613,23 +613,17 @@ app.get('/api/leaderboard', authMiddleware, async (req, res) => {
   try {
     const baseRes = await dbQuery(
       `SELECT
-         u.id as "userId",
-         COALESCE(u.username, u.name) as name,
-         COALESCE(SUM(t.hours), 0) AS "totalHours",
-         CASE
-           WHEN SUM(
-             CASE t.productivity
-               WHEN 'Super locked' THEN 5 * t.hours
-               WHEN 'Locked' THEN 4 * t.hours
-               WHEN 'Studying with a side of yap' THEN 3 * t.hours
-               WHEN 'Yap with a side of study' THEN 2 * t.hours
-               WHEN 'Did basically nothing' THEN 1 * t.hours
-               ELSE 0
-             END
-           ) = 0 OR COALESCE(SUM(t.hours), 0) = 0
-             THEN NULL
-           ELSE
-             1.0 * SUM(
+         u.id AS "userId",
+         COALESCE(u.username, u.name) AS name,
+         agg."totalHours",
+         agg."avgProductivity"
+       FROM users u
+       JOIN (
+         SELECT
+           t.user_id,
+           COALESCE(SUM(t.hours), 0) AS "totalHours",
+           CASE
+             WHEN SUM(
                CASE t.productivity
                  WHEN 'Super locked' THEN 5 * t.hours
                  WHEN 'Locked' THEN 4 * t.hours
@@ -638,15 +632,25 @@ app.get('/api/leaderboard', authMiddleware, async (req, res) => {
                  WHEN 'Did basically nothing' THEN 1 * t.hours
                  ELSE 0
                END
-             ) / SUM(t.hours)
-         END AS "avgProductivity"
-       FROM users u
-       LEFT JOIN time_logs t
-         ON u.id = t.user_id
-        AND substr(t.date, 1, 7) = $1
-       GROUP BY u.id, u.name
-       HAVING COALESCE(SUM(t.hours), 0) > 0
-       ORDER BY "totalHours" DESC, u.name ASC`,
+             ) = 0 OR COALESCE(SUM(t.hours), 0) = 0
+               THEN NULL
+             ELSE
+               1.0 * SUM(
+                 CASE t.productivity
+                   WHEN 'Super locked' THEN 5 * t.hours
+                   WHEN 'Locked' THEN 4 * t.hours
+                   WHEN 'Studying with a side of yap' THEN 3 * t.hours
+                   WHEN 'Yap with a side of study' THEN 2 * t.hours
+                   WHEN 'Did basically nothing' THEN 1 * t.hours
+                   ELSE 0
+                 END
+               ) / SUM(t.hours)
+           END AS "avgProductivity"
+         FROM time_logs t
+         WHERE substr(t.date, 1, 7) = $1
+         GROUP BY t.user_id
+       ) agg ON agg.user_id = u.id
+       ORDER BY agg."totalHours" DESC, name ASC`,
       [selectedMonth]
     );
 
