@@ -92,7 +92,7 @@
               </div>
             </div>
             <div class="header-actions">
-              <button id="open-achievements-btn" class="btn subtle" type="button">Achievements</button>
+              <a id="open-achievements-btn" class="btn subtle" href="#achievements-explorer-section">Achievements</a>
               <button id="logout-btn" class="btn subtle" type="button">Log out</button>
             </div>
           </div>
@@ -184,23 +184,18 @@
             <p class="hint" id="presence-status"></p>
             <ul id="presence-list" class="presence-list"></ul>
           </section>
+
+          <section class="subcard" id="achievements-explorer-section">
+            <h3>Achievement tiers</h3>
+            <p class="hint">Unlock a tier to reveal its achievements.</p>
+            <div id="achievements-explorer-grid" class="achievements-explorer-grid"></div>
+          </section>
         </section>
       </main>
 
       <footer class="footer">
         <small>#thodedemon</small>
       </footer>
-    </div>
-
-    <div id="achievements-modal" class="modal hidden" aria-hidden="true">
-      <div class="modal-card">
-        <div class="modal-header">
-          <h3>Achievements</h3>
-          <button id="close-achievements-btn" class="btn subtle btn-small" type="button">Close</button>
-        </div>
-        <p class="hint" id="achievements-modal-subtitle"></p>
-        <div id="achievements-modal-content" class="achievements-modal-content"></div>
-      </div>
     </div>
 
     <script src="app.js"></script>

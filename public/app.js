@@ -629,7 +629,8 @@ function initLoggedIn(user) {
 }
 
 if (openAchievementsBtn) {
-  openAchievementsBtn.addEventListener('click', () => {
+  openAchievementsBtn.addEventListener('click', (e) => {
+    e.preventDefault();
     if (!currentUser || !achievementsExplorerSection) return;
     achievementsExplorerSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
     achievementsExplorerSection.classList.remove('section-flash');
