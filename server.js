@@ -11,12 +11,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const MAC_EMAIL_DOMAIN = '@mcmaster.ca';
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
-const ACHIEVEMENT_ADMIN_USERNAMES = new Set(
-  (process.env.ACHIEVEMENT_ADMIN_USERNAMES || 'mella#1')
-    .split(',')
-    .map((v) => v.trim().toLowerCase())
-    .filter(Boolean)
-);
 let dbReady = false;
 
 // Middleware
@@ -398,11 +392,6 @@ function authMiddleware(req, res, next) {
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token.' });
   }
-}
-
-function canManageAchievements(req) {
-  const username = String(req.user?.username || '').trim().toLowerCase();
-  return ACHIEVEMENT_ADMIN_USERNAMES.has(username);
 }
 
 // Keep a lightweight probe endpoint for uptime checks and deployment health.
@@ -957,52 +946,6 @@ app.delete('/api/admin/delete-all-users', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to delete all users.' });
-  }
-});
-
-// Admin: delete achievements (mella#1 by default)
-// Requires Bearer token auth and an allowed admin username.
-// Body options:
-// - {} => delete all achievements for all users
-// - { userId } => delete all achievements for one user
-// - { month } => delete all achievements for one month (YYYY-MM)
-// - { userId, month } => delete one user's achievements for one month
-app.delete('/api/admin/achievements', authMiddleware, async (req, res) => {
-  if (!canManageAchievements(req)) {
-    return res.status(403).json({ error: 'Forbidden.' });
-  }
-
-  const body = req.body || {};
-  const hasUserId = body.userId !== undefined && body.userId !== null && body.userId !== '';
-  const hasMonth = typeof body.month === 'string' && body.month.trim() !== '';
-  const cleanMonth = hasMonth ? body.month.trim().slice(0, 7) : null;
-
-  if (hasMonth && !/^\d{4}-\d{2}$/.test(cleanMonth)) {
-    return res.status(400).json({ error: 'Invalid month format. Use YYYY-MM.' });
-  }
-
-  try {
-    let result;
-    if (hasUserId && hasMonth) {
-      result = await dbQuery(
-        'DELETE FROM user_achievements WHERE user_id = $1 AND month = $2',
-        [Number(body.userId), cleanMonth]
-      );
-    } else if (hasUserId) {
-      result = await dbQuery('DELETE FROM user_achievements WHERE user_id = $1', [Number(body.userId)]);
-    } else if (hasMonth) {
-      result = await dbQuery('DELETE FROM user_achievements WHERE month = $1', [cleanMonth]);
-    } else {
-      result = await dbQuery('DELETE FROM user_achievements');
-    }
-
-    return res.json({
-      ok: true,
-      deletedAchievements: result.rowCount || 0
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Failed to delete achievements.' });
   }
 });
 
