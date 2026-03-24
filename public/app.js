@@ -468,7 +468,7 @@ function isUnlocked(def, summary) {
 }
 
 function renderAchievementsModal() {
-  if (!latestRenderedSummary) return;
+  if (!latestRenderedSummary || !achievementsExplorerGrid) return;
   achievementsExplorerGrid.innerHTML = '';
 
   TIERS.forEach((tier) => {
@@ -500,6 +500,7 @@ function renderAchievementsModal() {
 }
 
 function renderPresence() {
+  if (!presenceToggleBtn || !presenceStatus || !presenceList) return;
   presenceToggleBtn.textContent = presenceState.isCheckedIn ? 'Check out' : 'Check in';
   presenceStatus.textContent = presenceState.isCheckedIn
     ? 'You are currently checked in.'
@@ -521,6 +522,7 @@ function renderPresence() {
 }
 
 async function loadPresence() {
+  if (!presenceToggleBtn || !presenceStatus || !presenceList) return;
   const data = await api('/api/presence');
   presenceState = {
     isCheckedIn: !!data.isCheckedIn,
@@ -604,8 +606,8 @@ async function refreshSummaryAndLeaderboard() {
       loadLeaderboard()
     ]);
     renderSummary(summary);
-    renderAchievementsModal();
     renderLeaderboard(leaderboard, currentUser.userId);
+    renderAchievementsModal();
     await loadPresence();
   } catch (err) {
     console.error(err);
@@ -626,24 +628,28 @@ function initLoggedIn(user) {
   refreshSummaryAndLeaderboard();
 }
 
-openAchievementsBtn.addEventListener('click', () => {
-  if (!currentUser || !achievementsExplorerSection) return;
-  achievementsExplorerSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-});
+if (openAchievementsBtn) {
+  openAchievementsBtn.addEventListener('click', () => {
+    if (!currentUser || !achievementsExplorerSection) return;
+    achievementsExplorerSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
 
-presenceToggleBtn.addEventListener('click', async () => {
-  if (!currentUser) return;
-  try {
-    if (presenceState.isCheckedIn) {
-      await api('/api/presence/check-out', { method: 'DELETE' });
-    } else {
-      await api('/api/presence/check-in', { method: 'POST' });
+if (presenceToggleBtn) {
+  presenceToggleBtn.addEventListener('click', async () => {
+    if (!currentUser) return;
+    try {
+      if (presenceState.isCheckedIn) {
+        await api('/api/presence/check-out', { method: 'DELETE' });
+      } else {
+        await api('/api/presence/check-in', { method: 'POST' });
+      }
+      await loadPresence();
+    } catch (err) {
+      alert(err.message || 'Failed to update presence.');
     }
-    await loadPresence();
-  } catch (err) {
-    alert(err.message || 'Failed to update presence.');
-  }
-});
+  });
+}
 
 window.addEventListener('DOMContentLoaded', () => {
   selectedMonth = getCurrentMonthISO();
