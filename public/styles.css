@@ -252,6 +252,11 @@ input:focus {
   margin-top: 0.2rem;
 }
 
+.small-hint {
+  font-size: 0.75rem;
+  margin-top: 0.15rem;
+}
+
 .hidden {
   display: none !important;
 }
