@@ -185,6 +185,50 @@
             <ul id="presence-list" class="presence-list"></ul>
           </section>
 
+          <div id="check-out-modal" class="modal hidden" aria-hidden="true">
+            <div class="modal-overlay" data-close-modal="true"></div>
+            <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="check-out-modal-title">
+              <h3 id="check-out-modal-title">Log your check-in time?</h3>
+              <p class="hint" id="check-out-modal-subtitle"></p>
+
+              <div class="field-inline">
+                <div class="field">
+                  <label for="check-out-log-date">Date</label>
+                  <input type="date" id="check-out-log-date" />
+                </div>
+              </div>
+
+              <div class="field-inline">
+                <div class="field">
+                  <label for="check-out-arrival">Start (HH:MM)</label>
+                  <input type="time" id="check-out-arrival" />
+                </div>
+                <div class="field">
+                  <label for="check-out-departure">Departure (HH:MM)</label>
+                  <input type="time" id="check-out-departure" />
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="check-out-productivity">How productive were you?</label>
+                <select id="check-out-productivity">
+                  <option value="Super locked">Super locked</option>
+                  <option value="Locked">Locked</option>
+                  <option value="Studying with a side of yap">Studying with a side of yap</option>
+                  <option value="Yap with a side of study">Yap with a side of study</option>
+                  <option value="Did basically nothing">Did basically nothing</option>
+                </select>
+              </div>
+
+              <p class="hint" id="check-out-preview"></p>
+
+              <div class="modal-actions">
+                <button id="check-out-cancel-btn" class="btn subtle" type="button">Cancel</button>
+                <button id="check-out-confirm-btn" class="btn primary" type="button">Confirm and log hours</button>
+              </div>
+            </div>
+          </div>
+
           <section class="subcard" id="achievements-explorer-section">
             <h3>Achievement tiers</h3>
             <p class="hint">Unlock a tier to reveal its achievements.</p>

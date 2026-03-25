@@ -36,6 +36,15 @@ const achievementsPast = document.getElementById('achievements-past');
 const presenceToggleBtn = document.getElementById('presence-toggle-btn');
 const presenceStatus = document.getElementById('presence-status');
 const presenceList = document.getElementById('presence-list');
+const checkOutModal = document.getElementById('check-out-modal');
+const checkOutModalSubtitle = document.getElementById('check-out-modal-subtitle');
+const checkOutLogDate = document.getElementById('check-out-log-date');
+const checkOutArrival = document.getElementById('check-out-arrival');
+const checkOutDeparture = document.getElementById('check-out-departure');
+const checkOutProductivity = document.getElementById('check-out-productivity');
+const checkOutPreview = document.getElementById('check-out-preview');
+const checkOutCancelBtn = document.getElementById('check-out-cancel-btn');
+const checkOutConfirmBtn = document.getElementById('check-out-confirm-btn');
 const openAchievementsBtn = document.getElementById('open-achievements-btn');
 const achievementsExplorerSection = document.getElementById('achievements-explorer-section');
 const achievementsExplorerGrid = document.getElementById('achievements-explorer-grid');
@@ -119,6 +128,93 @@ function loadSession() {
 
 function clearSession() {
   localStorage.removeItem('thodeUser');
+}
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+function toLocalISODateFromDate(d) {
+  const year = d.getFullYear();
+  const month = pad2(d.getMonth() + 1);
+  const day = pad2(d.getDate());
+  return `${year}-${month}-${day}`;
+}
+
+function toLocalTimeHHMMFromDate(d) {
+  const hh = pad2(d.getHours());
+  const mm = pad2(d.getMinutes());
+  return `${hh}:${mm}`;
+}
+
+function formatLocalTime(isoString) {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
+function parseHHMMToMinutes(timeStr) {
+  const [h, m] = String(timeStr || '').split(':').map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+
+function computeHoursHHMM(arrival, departure) {
+  const startMin = parseHHMMToMinutes(arrival);
+  const endMin = parseHHMMToMinutes(departure);
+  if (startMin === null || endMin === null) return null;
+  if (endMin <= startMin) return null;
+  return (endMin - startMin) / 60;
+}
+
+function setCheckOutModalVisible(visible) {
+  if (!checkOutModal) return;
+  checkOutModal.classList.toggle('hidden', !visible);
+  checkOutModal.setAttribute('aria-hidden', visible ? 'false' : 'true');
+}
+
+function updateCheckOutPreview() {
+  if (!checkOutPreview || !checkOutConfirmBtn) return;
+  const arrival = checkOutArrival && checkOutArrival.value;
+  const departure = checkOutDeparture && checkOutDeparture.value;
+  const hours = computeHoursHHMM(arrival, departure);
+
+  if (arrival && departure && hours == null) {
+    checkOutPreview.textContent = 'Departure must be after start time.';
+    checkOutConfirmBtn.disabled = true;
+    return;
+  }
+
+  if (hours == null) {
+    checkOutPreview.textContent = '';
+    checkOutConfirmBtn.disabled = true;
+    return;
+  }
+
+  checkOutPreview.textContent = `This will log ${hours.toFixed(2)} hours.`;
+  checkOutConfirmBtn.disabled = false;
+}
+
+function openCheckOutModal({ startDt, endDt }) {
+  if (!checkOutModal) return;
+
+  const dateISO = toLocalISODateFromDate(startDt);
+  checkOutModalSubtitle.textContent = `Checked in at ${formatLocalTime(startDt.toISOString())}.`;
+  if (checkOutLogDate) checkOutLogDate.value = dateISO;
+
+  if (checkOutArrival) checkOutArrival.value = toLocalTimeHHMMFromDate(startDt);
+  if (checkOutDeparture) checkOutDeparture.value = toLocalTimeHHMMFromDate(endDt);
+  if (checkOutProductivity && logProductivity) {
+    checkOutProductivity.value = logProductivity.value;
+  }
+
+  updateCheckOutPreview();
+  setCheckOutModalVisible(true);
+}
+
+function closeCheckOutModal() {
+  setCheckOutModalVisible(false);
 }
 
 function updateLogsHeader() {
@@ -510,8 +606,14 @@ function renderAchievementsModal() {
 function renderPresence() {
   if (!presenceToggleBtn || !presenceStatus || !presenceList) return;
   presenceToggleBtn.textContent = presenceState.isCheckedIn ? 'Check out' : 'Check in';
+  const myEntry = currentUser
+    ? (presenceState.users || []).find((u) => Number(u.userId) === Number(currentUser.userId))
+    : null;
+
   presenceStatus.textContent = presenceState.isCheckedIn
-    ? 'You are currently checked in.'
+    ? (myEntry && myEntry.checkedInAt
+        ? `You checked in at ${formatLocalTime(myEntry.checkedInAt)}.`
+        : 'You are currently checked in.')
     : 'Not checked in right now.';
 
   presenceList.innerHTML = '';
@@ -524,7 +626,7 @@ function renderPresence() {
 
   presenceState.users.forEach((u) => {
     const li = document.createElement('li');
-    li.textContent = u.name;
+    li.textContent = u.checkedInAt ? `${u.name} (${formatLocalTime(u.checkedInAt)})` : u.name;
     presenceList.appendChild(li);
   });
 }
@@ -652,16 +754,98 @@ if (presenceToggleBtn) {
   presenceToggleBtn.addEventListener('click', async () => {
     if (!currentUser) return;
     try {
-      if (presenceState.isCheckedIn) {
-        await api('/api/presence/check-out', { method: 'DELETE' });
-      } else {
+      if (!presenceState.isCheckedIn) {
         await api('/api/presence/check-in', { method: 'POST' });
+        await loadPresence();
+        return;
       }
-      await loadPresence();
+
+      // Check-out flow: prompt user to optionally log hours.
+      const data = await api('/api/presence');
+      const users = data.users || [];
+      const myEntry = users.find((u) => Number(u.userId) === Number(currentUser.userId));
+
+      if (!myEntry || !myEntry.checkedInAt) {
+        const ok = window.confirm('No check-in time found. Check out anyway?');
+        if (!ok) return;
+        await api('/api/presence/check-out', { method: 'DELETE' });
+        await loadPresence();
+        return;
+      }
+
+      const startDt = new Date(myEntry.checkedInAt);
+      const endDt = new Date();
+
+      const startDateISO = toLocalISODateFromDate(startDt);
+      const endDateISO = toLocalISODateFromDate(endDt);
+
+      // The app only supports same-day (arrival < departure) entries per log row.
+      if (startDateISO !== endDateISO) {
+        const ok = window.confirm(
+          `Your check-in started on ${startDateISO}. This app only logs same-day hours.\n` +
+          'Check out without logging, or log manually instead.'
+        );
+        if (!ok) return;
+        await api('/api/presence/check-out', { method: 'DELETE' });
+        await loadPresence();
+        return;
+      }
+
+      openCheckOutModal({ startDt, endDt });
     } catch (err) {
       alert(err.message || 'Failed to update presence.');
     }
   });
+}
+
+if (checkOutModal) {
+  const overlay = checkOutModal.querySelector('[data-close-modal="true"]');
+  async function cancelAndCheckOutWithoutLogging() {
+    closeCheckOutModal();
+    await api('/api/presence/check-out', { method: 'DELETE' });
+    await loadPresence();
+  }
+  if (overlay) {
+    overlay.addEventListener('click', cancelAndCheckOutWithoutLogging);
+  }
+  if (checkOutCancelBtn) {
+    checkOutCancelBtn.addEventListener('click', cancelAndCheckOutWithoutLogging);
+  }
+  if (checkOutArrival) checkOutArrival.addEventListener('input', updateCheckOutPreview);
+  if (checkOutDeparture) checkOutDeparture.addEventListener('input', updateCheckOutPreview);
+
+  if (checkOutConfirmBtn) {
+    checkOutConfirmBtn.addEventListener('click', async () => {
+      if (!currentUser) return;
+      const date = checkOutLogDate && checkOutLogDate.value;
+      const arrival = checkOutArrival && checkOutArrival.value;
+      const departure = checkOutDeparture && checkOutDeparture.value;
+      const productivity = checkOutProductivity && checkOutProductivity.value;
+
+      if (!date || !arrival || !departure || !productivity) return;
+
+      try {
+        const result = await api('/api/logs', {
+          method: 'POST',
+          body: JSON.stringify({ date, arrival, departure, productivity })
+        });
+
+        if (result && result.newAchievements && result.newAchievements.length > 0) {
+          const details = result.newAchievements
+            .map((a) => `Tier ${a.tier} achievement: ${a.title}`)
+            .join('\n');
+          alert(`Congratulations! You've unlocked a new achievement.\n${details}`);
+        }
+
+        await api('/api/presence/check-out', { method: 'DELETE' });
+        closeCheckOutModal();
+        await refreshSummaryAndLeaderboard();
+      } catch (err) {
+        alert(err.message || 'Failed to log check-out time.');
+        // Keep presence checked in so the user can retry with adjusted times.
+      }
+    });
+  }
 }
 
 window.addEventListener('DOMContentLoaded', () => {
