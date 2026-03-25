@@ -54,6 +54,13 @@ let currentUser = null;
 let viewedUserId = null;
 let viewedUserName = '';
 let presenceState = { isCheckedIn: false, users: [] };
+let checkOutContext = {
+  startDt: null,
+  endDt: null,
+  startDateISO: null,
+  endDateISO: null,
+  isOvernightSplit: false
+};
 let latestRenderedSummary = null;
 
 const ACHIEVEMENT_DEFS = [
@@ -178,16 +185,47 @@ function updateCheckOutPreview() {
   if (!checkOutPreview || !checkOutConfirmBtn) return;
   const arrival = checkOutArrival && checkOutArrival.value;
   const departure = checkOutDeparture && checkOutDeparture.value;
-  const hours = computeHoursHHMM(arrival, departure);
-
-  if (arrival && departure && hours == null) {
-    checkOutPreview.textContent = 'Departure must be after start time.';
+  if (!arrival || !departure) {
+    checkOutPreview.textContent = '';
     checkOutConfirmBtn.disabled = true;
     return;
   }
 
+  if (checkOutContext.isOvernightSplit) {
+    // Split into two logs:
+    // - start day: arrival -> 24:00
+    // - next day: 00:00 -> departure
+    const hours1 = computeHoursHHMM(arrival, '24:00');
+    const hours2Raw = computeHoursHHMM('00:00', departure);
+    const hours2 = hours2Raw == null ? 0 : hours2Raw;
+
+    if (hours1 == null) {
+      checkOutPreview.textContent = 'Start time must be before midnight.';
+      checkOutConfirmBtn.disabled = true;
+      return;
+    }
+
+    const total = hours1 + hours2;
+    if (total <= 0) {
+      checkOutPreview.textContent = 'No time to log.';
+      checkOutConfirmBtn.disabled = true;
+      return;
+    }
+
+    const startDay = checkOutContext.startDateISO;
+    const endDay = checkOutContext.endDateISO;
+    checkOutPreview.textContent =
+      `This will split into 2 logs:\n` +
+      `${startDay}: ${arrival} -> 24:00 (${hours1.toFixed(2)}h)\n` +
+      `${endDay}: 00:00 -> ${departure} (${hours2.toFixed(2)}h)\n` +
+      `Total: ${total.toFixed(2)} hours.`;
+    checkOutConfirmBtn.disabled = false;
+    return;
+  }
+
+  const hours = computeHoursHHMM(arrival, departure);
   if (hours == null) {
-    checkOutPreview.textContent = '';
+    checkOutPreview.textContent = 'Departure must be after start time.';
     checkOutConfirmBtn.disabled = true;
     return;
   }
@@ -199,9 +237,23 @@ function updateCheckOutPreview() {
 function openCheckOutModal({ startDt, endDt }) {
   if (!checkOutModal) return;
 
-  const dateISO = toLocalISODateFromDate(startDt);
-  checkOutModalSubtitle.textContent = `Checked in at ${formatLocalTime(startDt.toISOString())}.`;
-  if (checkOutLogDate) checkOutLogDate.value = dateISO;
+  const startDateISO = toLocalISODateFromDate(startDt);
+  const endDateISO = toLocalISODateFromDate(endDt);
+  checkOutContext = {
+    startDt,
+    endDt,
+    startDateISO,
+    endDateISO,
+    isOvernightSplit: startDateISO !== endDateISO
+  };
+
+  checkOutModalSubtitle.textContent =
+    `Checked in at ${formatLocalTime(startDt.toISOString())} and checking out at ${formatLocalTime(endDt.toISOString())}.`;
+  if (checkOutLogDate) {
+    checkOutLogDate.value = startDateISO;
+    // Prevent confusion: when splitting, the app will always log as "yesterday + today".
+    checkOutLogDate.disabled = checkOutContext.isOvernightSplit;
+  }
 
   if (checkOutArrival) checkOutArrival.value = toLocalTimeHHMMFromDate(startDt);
   if (checkOutDeparture) checkOutDeparture.value = toLocalTimeHHMMFromDate(endDt);
@@ -779,16 +831,23 @@ if (presenceToggleBtn) {
       const startDateISO = toLocalISODateFromDate(startDt);
       const endDateISO = toLocalISODateFromDate(endDt);
 
-      // The app only supports same-day (arrival < departure) entries per log row.
+      // This app stores logs as same-day intervals in a single row.
+      // For overnight sessions, we split into two rows only for "yesterday + today".
       if (startDateISO !== endDateISO) {
-        const ok = window.confirm(
-          `Your check-in started on ${startDateISO}. This app only logs same-day hours.\n` +
-          'Check out without logging, or log manually instead.'
-        );
-        if (!ok) return;
-        await api('/api/presence/check-out', { method: 'DELETE' });
-        await loadPresence();
-        return;
+        const todayISO = getCurrentDateISO();
+        const yesterdayISO = getYesterdayDateISO();
+
+        if (startDateISO !== yesterdayISO || endDateISO !== todayISO) {
+          const ok = window.confirm(
+            `Overnight logging is only supported for sessions that span yesterday -> today.\n` +
+            `Your session is: ${startDateISO} -> ${endDateISO}.\n\n` +
+            'Check out without logging, or log manually instead.'
+          );
+          if (!ok) return;
+          await api('/api/presence/check-out', { method: 'DELETE' });
+          await loadPresence();
+          return;
+        }
       }
 
       openCheckOutModal({ startDt, endDt });
@@ -817,21 +876,55 @@ if (checkOutModal) {
   if (checkOutConfirmBtn) {
     checkOutConfirmBtn.addEventListener('click', async () => {
       if (!currentUser) return;
-      const date = checkOutLogDate && checkOutLogDate.value;
       const arrival = checkOutArrival && checkOutArrival.value;
       const departure = checkOutDeparture && checkOutDeparture.value;
       const productivity = checkOutProductivity && checkOutProductivity.value;
 
-      if (!date || !arrival || !departure || !productivity) return;
+      if (!arrival || !departure || !productivity) return;
 
       try {
-        const result = await api('/api/logs', {
-          method: 'POST',
-          body: JSON.stringify({ date, arrival, departure, productivity })
-        });
+        const unlocked = [];
 
-        if (result && result.newAchievements && result.newAchievements.length > 0) {
-          const details = result.newAchievements
+        async function postLog(date, arr, dep) {
+          try {
+            const result = await api('/api/logs', {
+              method: 'POST',
+              body: JSON.stringify({ date, arrival: arr, departure: dep, productivity })
+            });
+            if (result && result.newAchievements && result.newAchievements.length > 0) {
+              unlocked.push(...result.newAchievements);
+            }
+          } catch (err) {
+            const msg = String(err && err.message ? err.message : err);
+            // If user already has that exact row, don't fail the whole check-out.
+            if (msg.includes('already exists')) return;
+            throw err;
+          }
+        }
+
+        if (checkOutContext.isOvernightSplit) {
+          const date1 = checkOutContext.startDateISO;
+          const date2 = checkOutContext.endDateISO;
+
+          // Segment 1: start day arrival -> 24:00
+          const hours1 = computeHoursHHMM(arrival, '24:00');
+          if (hours1 != null && hours1 > 0) {
+            await postLog(date1, arrival, '24:00');
+          }
+
+          // Segment 2: 00:00 -> end day departure (skip if it's exactly 00:00 => 0 hours)
+          let hours2 = computeHoursHHMM('00:00', departure);
+          if (hours2 == null) hours2 = 0;
+          if (hours2 > 0) {
+            await postLog(date2, '00:00', departure);
+          }
+        } else {
+          const date = checkOutLogDate && checkOutLogDate.value;
+          await postLog(date, arrival, departure);
+        }
+
+        if (unlocked.length > 0) {
+          const details = unlocked
             .map((a) => `Tier ${a.tier} achievement: ${a.title}`)
             .join('\n');
           alert(`Congratulations! You've unlocked a new achievement.\n${details}`);
