@@ -251,6 +251,11 @@ function openCheckOutModal({ startDt, endDt }) {
   checkOutModalSubtitle.textContent =
     `Checked in at ${formatLocalTime(startDt.toISOString())} and checking out at ${formatLocalTime(endDt.toISOString())}.`;
   if (checkOutLogDate) {
+    // Constrain the date picker to only yesterday/today.
+    const todayISO = getCurrentDateISO();
+    const yesterdayISO = getYesterdayDateISO();
+    checkOutLogDate.min = yesterdayISO;
+    checkOutLogDate.max = todayISO;
     checkOutLogDate.value = startDateISO;
     // Prevent confusion: when splitting, the app will always log as "yesterday + today".
     checkOutLogDate.disabled = checkOutContext.isOvernightSplit;
@@ -933,6 +938,12 @@ if (checkOutModal) {
           }
         } else {
           const date = checkOutLogDate && checkOutLogDate.value;
+          const todayISO = getCurrentDateISO();
+          const yesterdayISO = getYesterdayDateISO();
+          if (date !== todayISO && date !== yesterdayISO) {
+            alert('You can only log check-out hours for today or yesterday.');
+            return;
+          }
           await postLog(date, arrival, departure);
         }
 
