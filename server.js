@@ -9,9 +9,45 @@ const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+// Ensure "6:00 AM" auto-checkout uses a consistent timezone.
+// If your server is already configured for America/Toronto, this is harmless.
+process.env.TZ = process.env.TZ || 'America/Toronto';
 const MAC_EMAIL_DOMAIN = '@mcmaster.ca';
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 let dbReady = false;
+
+const AUTO_CHECK_OUT_HOUR = Number(process.env.AUTO_CHECK_OUT_HOUR || 6); // 0-23
+const AUTO_CHECK_OUT_MINUTE = Number(process.env.AUTO_CHECK_OUT_MINUTE || 0);
+let lastAutoCheckOutISODate = null;
+
+async function autoCheckOutEveryone() {
+  // “Check out” means remove presence rows only (no time_logs inserted).
+  await dbQuery('DELETE FROM current_presence');
+}
+
+function scheduleAutoCheckOut() {
+  // Best-effort: this runs while the Node server is running.
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(AUTO_CHECK_OUT_HOUR, AUTO_CHECK_OUT_MINUTE, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+
+  const msUntil = next.getTime() - now.getTime();
+  setTimeout(async () => {
+    try {
+      const todayISO = getCurrentDateISO();
+      if (lastAutoCheckOutISODate !== todayISO) {
+        await autoCheckOutEveryone();
+        lastAutoCheckOutISODate = todayISO;
+        console.log(`Auto check-out executed at ${AUTO_CHECK_OUT_HOUR}:${AUTO_CHECK_OUT_MINUTE}.`);
+      }
+    } catch (err) {
+      console.error('Auto check-out failed.', err);
+    } finally {
+      scheduleAutoCheckOut(); // schedule next day
+    }
+  }, msUntil);
+}
 
 // Middleware
 app.use(cors());
@@ -1017,6 +1053,7 @@ app.listen(PORT, () => {
     await initDb();
     dbReady = true;
     console.log('Database initialized.');
+    scheduleAutoCheckOut();
   } catch (err) {
     console.error('Failed to initialize database.', err);
     process.exit(1);

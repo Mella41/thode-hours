@@ -54,6 +54,7 @@ let currentUser = null;
 let viewedUserId = null;
 let viewedUserName = '';
 let presenceState = { isCheckedIn: false, users: [] };
+let presencePollIntervalId = null;
 let checkOutContext = {
   startDt: null,
   endDt: null,
@@ -422,6 +423,11 @@ signupForm.addEventListener('submit', async (e) => {
 logoutBtn.addEventListener('click', () => {
   clearSession();
   showAuth();
+  currentUser = null;
+  if (presencePollIntervalId) {
+    clearInterval(presencePollIntervalId);
+    presencePollIntervalId = null;
+  }
 });
 
 logForm.addEventListener('submit', async (e) => {
@@ -788,6 +794,13 @@ function initLoggedIn(user) {
   updateLogsHeader();
   showApp();
   refreshSummaryAndLeaderboard();
+
+  // Keep presence accurate even if backend auto-checks users out.
+  if (presencePollIntervalId) clearInterval(presencePollIntervalId);
+  presencePollIntervalId = setInterval(() => {
+    if (!currentUser) return;
+    loadPresence().catch(() => {});
+  }, 30000);
 }
 
 if (openAchievementsBtn) {
