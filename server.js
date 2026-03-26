@@ -112,6 +112,13 @@ async function initDb() {
       user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       checked_in_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+
+    CREATE TABLE IF NOT EXISTS feedback_entries (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      message TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
   `);
 }
 
@@ -1036,6 +1043,32 @@ app.delete('/api/presence/check-out', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to check out.' });
+  }
+});
+
+// Feedback: users can submit requests/comments.
+app.post('/api/feedback', authMiddleware, async (req, res) => {
+  const userId = Number(req.user?.userId);
+  const message = String(req.body?.message || '').trim();
+  if (!userId) return res.status(401).json({ error: 'Unauthorized.' });
+  if (!message) return res.status(400).json({ error: 'Feedback message is required.' });
+  if (message.length > 2000) return res.status(400).json({ error: 'Feedback is too long (max 2000 chars).' });
+
+  try {
+    const result = await dbQuery(
+      `INSERT INTO feedback_entries (user_id, message)
+       VALUES ($1, $2)
+       RETURNING id, created_at`,
+      [userId, message]
+    );
+    res.json({
+      ok: true,
+      id: Number(result.rows[0].id),
+      createdAt: result.rows[0].created_at
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to submit feedback.' });
   }
 });
 

@@ -173,6 +173,24 @@ input {
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
+textarea {
+  border-radius: 0.6rem;
+  border: 1px solid rgba(148, 163, 184, 0.7);
+  background: #ffffff;
+  color: #111827;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  resize: vertical;
+}
+
+textarea:focus {
+  border-color: #22c55e;
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.6);
+  background: #ffffff;
+}
+
 select {
   border-radius: 0.6rem;
   border: 1px solid rgba(148, 163, 184, 0.7);
@@ -438,6 +456,17 @@ tbody tr:hover {
 .presence-list li {
   margin-bottom: 0.25rem;
   font-size: 0.85rem;
+}
+
+.feedback-list {
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.feedback-list li {
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.35;
 }
 
 .achievements-past {

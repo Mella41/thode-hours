@@ -48,6 +48,10 @@ const checkOutConfirmBtn = document.getElementById('check-out-confirm-btn');
 const openAchievementsBtn = document.getElementById('open-achievements-btn');
 const achievementsExplorerSection = document.getElementById('achievements-explorer-section');
 const achievementsExplorerGrid = document.getElementById('achievements-explorer-grid');
+const feedbackForm = document.getElementById('feedback-form');
+const feedbackInput = document.getElementById('feedback-input');
+const feedbackSuccess = document.getElementById('feedback-success');
+const feedbackError = document.getElementById('feedback-error');
 
 let selectedMonth = null; // in "YYYY-MM" format
 let currentUser = null;
@@ -333,6 +337,7 @@ function showApp() {
   appSection.classList.remove('hidden');
 }
 
+
 function switchTab(toSignup) {
   if (toSignup) {
     tabSignup.classList.add('active');
@@ -370,6 +375,13 @@ async function api(path, options = {}) {
     data = text ? JSON.parse(text) : null;
   } catch {
     data = null;
+  }
+  if (res.status === 401) {
+    // Expired/invalid token: force re-auth so users don't see blank app sections.
+    clearSession();
+    currentUser = null;
+    showAuth();
+    authError.textContent = 'Session expired. Please log in again.';
   }
   if (!res.ok) {
     const message = (data && data.error) || `Request failed (${res.status})`;
@@ -434,6 +446,32 @@ logoutBtn.addEventListener('click', () => {
     presencePollIntervalId = null;
   }
 });
+
+if (feedbackForm) {
+  feedbackForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    if (feedbackError) feedbackError.textContent = '';
+    if (feedbackSuccess) feedbackSuccess.textContent = '';
+
+    const message = (feedbackInput && feedbackInput.value ? feedbackInput.value : '').trim();
+    if (!message) {
+      if (feedbackError) feedbackError.textContent = 'Please enter feedback before sending.';
+      return;
+    }
+
+    try {
+      await api('/api/feedback', {
+        method: 'POST',
+        body: JSON.stringify({ message })
+      });
+      if (feedbackInput) feedbackInput.value = '';
+      if (feedbackSuccess) feedbackSuccess.textContent = 'Thanks! Your feedback was sent.';
+    } catch (err) {
+      if (feedbackError) feedbackError.textContent = err.message || 'Failed to send feedback.';
+    }
+  });
+}
 
 logForm.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -799,6 +837,8 @@ function initLoggedIn(user) {
   updateLogsHeader();
   showApp();
   refreshSummaryAndLeaderboard();
+  if (feedbackSuccess) feedbackSuccess.textContent = '';
+  if (feedbackError) feedbackError.textContent = '';
 
   // Keep presence accurate even if backend auto-checks users out.
   if (presencePollIntervalId) clearInterval(presencePollIntervalId);
