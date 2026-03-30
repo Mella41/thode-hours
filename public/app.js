@@ -30,6 +30,7 @@ const logsSubtitle = document.getElementById('logs-subtitle');
 const yourTotal = document.getElementById('your-total');
 const logsTableBody = document.getElementById('logs-table-body');
 const leaderboardBody = document.getElementById('leaderboard-body');
+const leaderboardAllTimeBody = document.getElementById('leaderboard-alltime-body');
 const achievementsTitle = document.getElementById('achievements-title');
 const achievementsCurrent = document.getElementById('achievements-current');
 const achievementsPast = document.getElementById('achievements-past');
@@ -564,6 +565,10 @@ async function loadLeaderboard() {
   return api(`/api/leaderboard${query ? `?${query}` : ''}`);
 }
 
+async function loadAllTimeLeaderboard() {
+  return api('/api/leaderboard/all-time');
+}
+
 function renderSummary(summary) {
   latestRenderedSummary = summary;
   const total = summary.totalHours || 0;
@@ -742,8 +747,9 @@ async function loadPresence() {
   renderPresence();
 }
 
-function renderLeaderboard(data, currentUserId) {
-  leaderboardBody.innerHTML = '';
+function renderLeaderboard(data, currentUserId, targetBody) {
+  if (!targetBody) return;
+  targetBody.innerHTML = '';
   data.leaderboard.forEach((row, index) => {
     const tr = document.createElement('tr');
     if (index === 0) {
@@ -801,7 +807,7 @@ function renderLeaderboard(data, currentUserId) {
       })();
     });
 
-    leaderboardBody.appendChild(tr);
+    targetBody.appendChild(tr);
   });
 }
 
@@ -812,12 +818,14 @@ async function refreshSummaryAndLeaderboard() {
     currentUser = u;
   }
   try {
-    const [summary, leaderboard] = await Promise.all([
+    const [summary, leaderboard, allTimeLeaderboard] = await Promise.all([
       loadSummary(viewedUserId || currentUser.userId),
-      loadLeaderboard()
+      loadLeaderboard(),
+      loadAllTimeLeaderboard()
     ]);
     renderSummary(summary);
-    renderLeaderboard(leaderboard, currentUser.userId);
+    renderLeaderboard(leaderboard, currentUser.userId, leaderboardBody);
+    renderLeaderboard(allTimeLeaderboard, currentUser.userId, leaderboardAllTimeBody);
     renderAchievementsModal();
     await loadPresence();
   } catch (err) {

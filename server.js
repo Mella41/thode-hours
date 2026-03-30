@@ -695,6 +695,100 @@ app.get('/api/summary', authMiddleware, async (req, res) => {
 });
 
 // Get leaderboard for current month
+async function buildLeaderboard(selectedMonth = null) {
+  const monthWhere = selectedMonth ? 'WHERE substr(t.date, 1, 7) = $1' : '';
+  const monthParams = selectedMonth ? [selectedMonth] : [];
+
+  const baseRes = await dbQuery(
+    `SELECT
+       t.user_id AS "userId",
+       COALESCE(u.username, u.name, 'User ' || t.user_id::text) AS name,
+       COALESCE(SUM(t.hours), 0) AS "totalHours",
+       CASE
+         WHEN SUM(
+           CASE t.productivity
+             WHEN 'Super locked' THEN 5 * t.hours
+             WHEN 'Locked' THEN 4 * t.hours
+             WHEN 'Studying with a side of yap' THEN 3 * t.hours
+             WHEN 'Yap with a side of study' THEN 2 * t.hours
+             WHEN 'Did basically nothing' THEN 1 * t.hours
+             ELSE 0
+           END
+         ) = 0 OR COALESCE(SUM(t.hours), 0) = 0
+           THEN NULL
+         ELSE
+           1.0 * SUM(
+             CASE t.productivity
+               WHEN 'Super locked' THEN 5 * t.hours
+               WHEN 'Locked' THEN 4 * t.hours
+               WHEN 'Studying with a side of yap' THEN 3 * t.hours
+               WHEN 'Yap with a side of study' THEN 2 * t.hours
+               WHEN 'Did basically nothing' THEN 1 * t.hours
+               ELSE 0
+             END
+           ) / SUM(t.hours)
+       END AS "avgProductivity"
+     FROM time_logs t
+     LEFT JOIN users u ON u.id = t.user_id
+     ${monthWhere}
+     GROUP BY t.user_id, u.username, u.name
+     ORDER BY "totalHours" DESC, name ASC`,
+    monthParams
+  );
+
+  const rows = baseRes.rows.map((r) => ({
+    userId: Number(r.userId),
+    name: r.name,
+    totalHours: Number(r.totalHours || 0),
+    avgProductivity: r.avgProductivity == null ? null : Number(r.avgProductivity)
+  }));
+
+  const todayISO = getTodayISO();
+  const datesWhere = selectedMonth ? 'WHERE substr(date, 1, 7) = $1' : '';
+  const datesParams = selectedMonth ? [selectedMonth] : [];
+
+  const datesRes = await dbQuery(
+    `SELECT user_id, date
+     FROM (
+       SELECT DISTINCT user_id, date
+       FROM time_logs
+       ${datesWhere}
+     ) d
+     ORDER BY user_id ASC, date ASC`,
+    datesParams
+  );
+
+  const datesByUser = new Map();
+  for (const r of datesRes.rows) {
+    const uid = Number(r.user_id);
+    const d = r.date;
+    if (!datesByUser.has(uid)) datesByUser.set(uid, []);
+    datesByUser.get(uid).push(d);
+  }
+
+  const toDate = (iso) => new Date(iso + 'T00:00:00');
+  return rows.map((row) => {
+    const dates = (datesByUser.get(row.userId) || []).filter((d) => d && d <= todayISO);
+    if (dates.length === 0) return { ...row, streak: 0 };
+
+    let streak = 1;
+    let i = dates.length - 1;
+    let prev = dates[i];
+    while (i > 0) {
+      const curr = dates[i - 1];
+      const diffDays = (toDate(prev) - toDate(curr)) / (1000 * 60 * 60 * 24);
+      if (diffDays === 1) {
+        streak += 1;
+        prev = curr;
+        i -= 1;
+      } else {
+        break;
+      }
+    }
+    return { ...row, streak };
+  });
+}
+
 app.get('/api/leaderboard', authMiddleware, async (req, res) => {
   const { month } = req.query;
   const now = new Date();
@@ -704,99 +798,21 @@ app.get('/api/leaderboard', authMiddleware, async (req, res) => {
   const selectedMonth = (month || currentMonth).slice(0, 7);
 
   try {
-    const baseRes = await dbQuery(
-      `SELECT
-         t.user_id AS "userId",
-         COALESCE(u.username, u.name, 'User ' || t.user_id::text) AS name,
-         COALESCE(SUM(t.hours), 0) AS "totalHours",
-         CASE
-           WHEN SUM(
-             CASE t.productivity
-               WHEN 'Super locked' THEN 5 * t.hours
-               WHEN 'Locked' THEN 4 * t.hours
-               WHEN 'Studying with a side of yap' THEN 3 * t.hours
-               WHEN 'Yap with a side of study' THEN 2 * t.hours
-               WHEN 'Did basically nothing' THEN 1 * t.hours
-               ELSE 0
-             END
-           ) = 0 OR COALESCE(SUM(t.hours), 0) = 0
-             THEN NULL
-           ELSE
-             1.0 * SUM(
-               CASE t.productivity
-                 WHEN 'Super locked' THEN 5 * t.hours
-                 WHEN 'Locked' THEN 4 * t.hours
-                 WHEN 'Studying with a side of yap' THEN 3 * t.hours
-                 WHEN 'Yap with a side of study' THEN 2 * t.hours
-                 WHEN 'Did basically nothing' THEN 1 * t.hours
-                 ELSE 0
-               END
-             ) / SUM(t.hours)
-         END AS "avgProductivity"
-       FROM time_logs t
-       LEFT JOIN users u ON u.id = t.user_id
-       WHERE substr(t.date, 1, 7) = $1
-       GROUP BY t.user_id, u.username, u.name
-       ORDER BY "totalHours" DESC, name ASC`,
-      [selectedMonth]
-    );
-
-    const rows = baseRes.rows.map((r) => ({
-      userId: Number(r.userId),
-      name: r.name,
-      totalHours: Number(r.totalHours || 0),
-      avgProductivity: r.avgProductivity == null ? null : Number(r.avgProductivity)
-    }));
-
-    const todayISO = getTodayISO();
-
-    const datesRes = await dbQuery(
-      `SELECT user_id, date
-       FROM (
-         SELECT DISTINCT user_id, date
-         FROM time_logs
-         WHERE substr(date, 1, 7) = $1
-       ) d
-       ORDER BY user_id ASC, date ASC`,
-      [selectedMonth]
-    );
-
-    const datesByUser = new Map();
-    for (const r of datesRes.rows) {
-      const uid = Number(r.user_id);
-      const d = r.date;
-      if (!datesByUser.has(uid)) datesByUser.set(uid, []);
-      datesByUser.get(uid).push(d);
-    }
-
-    const toDate = (iso) => new Date(iso + 'T00:00:00');
-
-    const withStreak = rows.map((row) => {
-      const dates = (datesByUser.get(row.userId) || []).filter((d) => d && d <= todayISO);
-      if (dates.length === 0) return { ...row, streak: 0 };
-
-      let streak = 1;
-      let i = dates.length - 1;
-      let prev = dates[i];
-      while (i > 0) {
-        const curr = dates[i - 1];
-        const diffDays = (toDate(prev) - toDate(curr)) / (1000 * 60 * 60 * 24);
-        if (diffDays === 1) {
-          streak += 1;
-          prev = curr;
-          i -= 1;
-        } else {
-          break;
-        }
-      }
-
-      return { ...row, streak };
-    });
-
+    const withStreak = await buildLeaderboard(selectedMonth);
     res.json({ month: selectedMonth, leaderboard: withStreak });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to load leaderboard.' });
+  }
+});
+
+app.get('/api/leaderboard/all-time', authMiddleware, async (_req, res) => {
+  try {
+    const leaderboard = await buildLeaderboard(null);
+    res.json({ period: 'all-time', leaderboard });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load all-time leaderboard.' });
   }
 });
 
