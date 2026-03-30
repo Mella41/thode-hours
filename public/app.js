@@ -591,8 +591,9 @@ function renderSummary(summary) {
     prodTd.textContent = log.productivity || '';
 
     const isToday = log.date === getCurrentDateISO();
+    const isYesterday = log.date === getYesterdayDateISO();
     const isOwnLog = currentUser && viewedUserId === currentUser.userId;
-    if (isToday && isOwnLog) {
+    if ((isToday || isYesterday) && isOwnLog) {
       const delBtn = document.createElement('button');
       delBtn.textContent = 'Delete';
       delBtn.className = 'btn subtle btn-small';

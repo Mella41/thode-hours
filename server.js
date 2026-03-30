@@ -587,17 +587,25 @@ app.post('/api/logs', authMiddleware, async (req, res) => {
   }
 
   try {
-    // Prevent exact duplicate rows for the same day.
-    // (Overlap checks were too strict and could falsely block valid inserts.)
-    const duplicate = await dbQuery(
-      `SELECT id
+    // Prevent overlapping time windows for same user/date.
+    const existingRes = await dbQuery(
+      `SELECT id, arrival, departure
        FROM time_logs
-       WHERE user_id = $1 AND date = $2 AND arrival = $3 AND departure = $4
-       LIMIT 1`,
-      [userId, date, arrival, departure]
+       WHERE user_id = $1 AND date = $2`,
+      [userId, date]
     );
-    if (duplicate.rowCount > 0) {
-      return res.status(400).json({ error: 'This exact time entry already exists for that date.' });
+
+    for (const row of existingRes.rows) {
+      const existingStart = parseTimeToMinutes(row.arrival);
+      const existingEnd = parseTimeToMinutes(row.departure);
+      if (existingStart == null || existingEnd == null) continue;
+
+      // Overlap if [start, end) intersects [existingStart, existingEnd)
+      if (startMin < existingEnd && endMin > existingStart) {
+        return res.status(400).json({
+          error: `This entry overlaps with an existing log (${row.arrival}-${row.departure}) for that date.`
+        });
+      }
     }
 
     const inserted = await dbQuery(
