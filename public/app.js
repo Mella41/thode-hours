@@ -1,5 +1,30 @@
 const API_BASE = '';
 
+const THEME_STORAGE_KEY = 'thodeTheme';
+
+function getStoredTheme() {
+  const saved = localStorage.getItem(THEME_STORAGE_KEY);
+  if (saved === 'light' || saved === 'dark') return saved;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyTheme(theme) {
+  const dark = theme === 'dark';
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
+    btn.textContent = dark ? 'Light mode' : 'Dark mode';
+    btn.setAttribute('aria-pressed', String(dark));
+  });
+}
+
+function toggleTheme() {
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  localStorage.setItem(THEME_STORAGE_KEY, next);
+  applyTheme(next);
+}
+
+applyTheme(getStoredTheme());
+
 const authSection = document.getElementById('auth-section');
 const appSection = document.getElementById('app-section');
 const tabLogin = document.getElementById('tab-login');
@@ -1015,6 +1040,11 @@ if (checkOutModal) {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
+  applyTheme(getStoredTheme());
+  document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
+    btn.addEventListener('click', () => toggleTheme());
+  });
+
   selectedMonth = getCurrentMonthISO();
   currentMonthLabel.textContent = formatMonthLabel(selectedMonth);
   updateLogFormState();

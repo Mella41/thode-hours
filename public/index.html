@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <title>Thode Hours Tracker</title>
@@ -45,6 +45,17 @@
 
       <main class="main">
         <section class="card auth-card" id="auth-section">
+          <div class="auth-card-toolbar">
+            <button
+              type="button"
+              class="btn subtle theme-toggle-btn"
+              data-theme-toggle
+              aria-pressed="false"
+              aria-label="Toggle dark mode"
+            >
+              Dark mode
+            </button>
+          </div>
           <div class="tabs">
             <button class="tab active" id="tab-login">Log in</button>
             <button class="tab" id="tab-signup">Sign up</button>
@@ -96,6 +107,15 @@
               </div>
             </div>
             <div class="header-actions">
+              <button
+                type="button"
+                class="btn subtle theme-toggle-btn"
+                data-theme-toggle
+                aria-pressed="false"
+                aria-label="Toggle dark mode"
+              >
+                Dark mode
+              </button>
               <a id="open-achievements-btn" class="btn subtle" href="#achievements-explorer-section">Achievements</a>
               <button id="logout-btn" class="btn subtle" type="button">Log out</button>
             </div>
