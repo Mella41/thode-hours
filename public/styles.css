@@ -285,6 +285,16 @@ input:focus {
   margin-top: 0.15rem;
 }
 
+.hint-auth-contact {
+  margin-top: 0.75rem;
+  text-align: center;
+}
+
+.hint-auth-contact a {
+  color: #166534;
+  word-break: break-all;
+}
+
 .hidden {
   display: none !important;
 }
