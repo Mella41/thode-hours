@@ -5,11 +5,11 @@
 }
 
 :root {
-  /* Light green panels (dashboard cards, tables, modal) */
-  --panel-green: #ecfdf5;
-  --panel-green-soft: #f0fdf4;
-  --panel-green-muted: #d1fae5;
-  --panel-border: rgba(22, 101, 52, 0.14);
+  /* Matte sage panels — soft, not neon (near #e8f5e9 / #f1f8e9) */
+  --panel-green: #f1f8e9;
+  --panel-green-soft: #f7faf6;
+  --panel-green-muted: #e8f5e9;
+  --panel-border: rgba(55, 75, 55, 0.1);
 }
 
 body {
