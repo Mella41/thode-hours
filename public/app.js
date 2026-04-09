@@ -1094,7 +1094,7 @@ if (presenceToggleBtn) {
     try {
       if (!presenceState.isCheckedIn) {
         const wantsNotifications = window.confirm(
-          'Enable check-in reminders as browser notifications?'
+          'Enable check-out reminders as browser notifications?'
         );
         setNotificationsEnabled(wantsNotifications);
         if (wantsNotifications) {
