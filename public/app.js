@@ -92,6 +92,11 @@ let recentActivityPollIntervalId = null;
 let recentActivityRotateIntervalId = null;
 
 const RECENT_ACTIVITY_LIMIT = 20;
+const CHECK_IN_REMINDER_THRESHOLD_MINUTES = 240; // 4 hours
+const CHECK_IN_REMINDER_REPEAT_MINUTES = 120; // remind at most once every 2 hours
+const NOTIFICATION_PREF_KEY = 'thodeCheckinNotificationsEnabled';
+let checkInReminderSessionAt = null;
+let checkInReminderLastPromptMs = 0;
 let checkOutContext = {
   startDt: null,
   endDt: null,
@@ -173,6 +178,44 @@ function loadSession() {
 
 function clearSession() {
   localStorage.removeItem('thodeUser');
+}
+
+function notificationsSupported() {
+  return typeof window !== 'undefined' && 'Notification' in window;
+}
+
+function getNotificationsEnabled() {
+  return localStorage.getItem(NOTIFICATION_PREF_KEY) === 'true';
+}
+
+function setNotificationsEnabled(enabled) {
+  localStorage.setItem(NOTIFICATION_PREF_KEY, enabled ? 'true' : 'false');
+}
+
+async function ensureReminderNotificationPermission() {
+  if (!notificationsSupported()) return false;
+
+  if (Notification.permission === 'granted') {
+    setNotificationsEnabled(true);
+    return true;
+  }
+  if (Notification.permission === 'denied') {
+    setNotificationsEnabled(false);
+    return false;
+  }
+
+  // Only ask after user explicitly opted in.
+  if (!getNotificationsEnabled()) return false;
+
+  try {
+    const result = await Notification.requestPermission();
+    const granted = result === 'granted';
+    setNotificationsEnabled(granted);
+    return granted;
+  } catch {
+    setNotificationsEnabled(false);
+    return false;
+  }
 }
 
 function pad2(n) {
@@ -363,6 +406,8 @@ function updateLogFormState() {
 function showAuth() {
   authSection.classList.remove('hidden');
   appSection.classList.add('hidden');
+  checkInReminderSessionAt = null;
+  checkInReminderLastPromptMs = 0;
 }
 
 function showApp() {
@@ -483,6 +528,8 @@ logoutBtn.addEventListener('click', () => {
     recentActivityPollIntervalId = null;
   }
   stopRecentActivityRotation();
+  checkInReminderSessionAt = null;
+  checkInReminderLastPromptMs = 0;
 });
 
 if (feedbackForm) {
@@ -778,6 +825,70 @@ function renderPresence() {
   });
 }
 
+function maybePromptLongCheckIn(myEntry) {
+  if (!currentUser || !presenceState.isCheckedIn || !myEntry || !myEntry.checkedInAt) {
+    checkInReminderSessionAt = null;
+    checkInReminderLastPromptMs = 0;
+    return;
+  }
+
+  const checkedInMs = new Date(myEntry.checkedInAt).getTime();
+  if (Number.isNaN(checkedInMs)) return;
+
+  if (checkInReminderSessionAt !== myEntry.checkedInAt) {
+    checkInReminderSessionAt = myEntry.checkedInAt;
+    checkInReminderLastPromptMs = 0;
+  }
+
+  const nowMs = Date.now();
+  const elapsedMinutes = (nowMs - checkedInMs) / (1000 * 60);
+  if (elapsedMinutes < CHECK_IN_REMINDER_THRESHOLD_MINUTES) return;
+
+  if (
+    checkInReminderLastPromptMs > 0 &&
+    (nowMs - checkInReminderLastPromptMs) / (1000 * 60) < CHECK_IN_REMINDER_REPEAT_MINUTES
+  ) {
+    return;
+  }
+
+  if (checkOutModal && !checkOutModal.classList.contains('hidden')) return;
+
+  checkInReminderLastPromptMs = nowMs;
+  const elapsedHours = (elapsedMinutes / 60).toFixed(1);
+
+  const canNotify =
+    notificationsSupported() &&
+    Notification.permission === 'granted' &&
+    getNotificationsEnabled();
+
+  if (canNotify) {
+    try {
+      const n = new Notification('Still at Thode?', {
+        body: `You've been checked in for ${elapsedHours} hours. Open Thode Hours to confirm or check out.`,
+        tag: 'thode-long-checkin-reminder',
+        renotify: true
+      });
+      n.onclick = () => {
+        window.focus();
+        n.close();
+      };
+      return;
+    } catch {
+      // Fall through to in-app prompt if Notification fails.
+    }
+  }
+
+  const stillHere = window.confirm(
+    `You've been checked in for ${elapsedHours} hours.\n\n` +
+      "Press OK to confirm you're still at Thode.\n" +
+      'Press Cancel to check out now.'
+  );
+
+  if (!stillHere && presenceToggleBtn) {
+    presenceToggleBtn.click();
+  }
+}
+
 async function loadPresence() {
   if (!presenceToggleBtn || !presenceStatus || !presenceList) return;
   const data = await api('/api/presence');
@@ -786,6 +897,10 @@ async function loadPresence() {
     users: data.users || []
   };
   renderPresence();
+  const myEntry = currentUser
+    ? (presenceState.users || []).find((u) => Number(u.userId) === Number(currentUser.userId))
+    : null;
+  maybePromptLongCheckIn(myEntry);
 }
 
 function stopRecentActivityRotation() {
@@ -978,6 +1093,13 @@ if (presenceToggleBtn) {
     if (!currentUser) return;
     try {
       if (!presenceState.isCheckedIn) {
+        const wantsNotifications = window.confirm(
+          'Enable check-in reminders as browser notifications?'
+        );
+        setNotificationsEnabled(wantsNotifications);
+        if (wantsNotifications) {
+          await ensureReminderNotificationPermission();
+        }
         await api('/api/presence/check-in', { method: 'POST' });
         await loadPresence();
         return;
