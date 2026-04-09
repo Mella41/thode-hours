@@ -53,6 +53,7 @@ const logSubmitBtn = logForm.querySelector('button[type="submit"]');
 const logsTitle = document.getElementById('logs-title');
 const logsSubtitle = document.getElementById('logs-subtitle');
 const yourTotal = document.getElementById('your-total');
+const headerMonthHours = document.getElementById('header-month-hours');
 const logsTableBody = document.getElementById('logs-table-body');
 const leaderboardBody = document.getElementById('leaderboard-body');
 const leaderboardAllTimeBody = document.getElementById('leaderboard-alltime-body');
@@ -598,6 +599,9 @@ function renderSummary(summary) {
   latestRenderedSummary = summary;
   const total = summary.totalHours || 0;
   yourTotal.textContent = `Total this month: ${total.toFixed(2)} hours`;
+  if (headerMonthHours) {
+    headerMonthHours.textContent = `${total.toFixed(2)} h`;
+  }
 
   logsTableBody.innerHTML = '';
   summary.logs.forEach((log) => {

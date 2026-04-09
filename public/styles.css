@@ -416,9 +416,26 @@ input:focus {
 
 .app-header-center-title {
   margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.35rem 0.65rem;
   font-size: 1.3rem;
   font-weight: 800;
   text-align: center;
+}
+
+.app-header-hours-label {
+  white-space: nowrap;
+}
+
+.app-header-hours-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--link-accent);
+  white-space: nowrap;
 }
 
 .app-header p {
@@ -725,6 +742,7 @@ th {
   .app-header-center-title {
     width: 100%;
     text-align: left;
+    justify-content: flex-start;
   }
 
   .header-actions {
