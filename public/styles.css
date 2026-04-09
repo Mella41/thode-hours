@@ -168,6 +168,7 @@ html[data-theme='dark'] .hero-figure svg {
 
 .auth-card {
   max-width: 420px;
+  margin: 0 auto;
 }
 
 .auth-card-toolbar {
