@@ -163,6 +163,30 @@ function getYesterdayISO() {
   return `${year}-${month}-${day}`;
 }
 
+/** Last calendar day of month `YYYY-MM` as `YYYY-MM-DD`. */
+function getLastDayOfMonthISO(yearMonth) {
+  const [yStr, mStr] = yearMonth.split('-');
+  const y = Number(yStr);
+  const m = Number(mStr);
+  if (!y || !m) return getTodayISO();
+  const last = new Date(y, m, 0);
+  const yy = last.getFullYear();
+  const mm = String(last.getMonth() + 1).padStart(2, '0');
+  const dd = String(last.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+/**
+ * When measuring streaks for calendar month `YYYY-MM`, count only through
+ * min(today, last day of that month) so streaks carry across month boundaries
+ * and past-month views use the streak as of month-end.
+ */
+function getStreakEvaluationEndISO(yearMonth) {
+  const today = getTodayISO();
+  const last = getLastDayOfMonthISO(yearMonth);
+  return last < today ? last : today;
+}
+
 const ACHIEVEMENTS = [
   { key: 'welcome_to_thode', tier: 'D', title: 'Welcome to Thode', subtitle: 'Unlock a 3-day streak' },
   { key: 'getting_comfortable', tier: 'D', title: 'Getting Comfortable', subtitle: 'Spend 3 hours at Thode in one day' },
@@ -242,7 +266,7 @@ function overlapsWindow(startMin, endMin, winStart, winEnd) {
   return startMin < winEnd && endMin > winStart;
 }
 
-function evaluateAchievementKeys(logs, todayISO) {
+function evaluateAchievementKeys(logs, streakEndISO, streakDatesFromHistory = null) {
   const dates = [];
   const dayHours = new Map();
   const weekHours = new Map();
@@ -310,7 +334,8 @@ function evaluateAchievementKeys(logs, todayISO) {
     if (h > maxWeekHours) maxWeekHours = h;
   }
 
-  const streak = getCurrentStreak(dates, todayISO);
+  const streakDateList = streakDatesFromHistory != null ? streakDatesFromHistory : [...new Set(dates)];
+  const streak = getCurrentStreak(streakDateList, streakEndISO);
   const achieved = new Set();
 
   if (streak >= 3) achieved.add('welcome_to_thode');
@@ -360,7 +385,14 @@ async function syncAchievementsForMonth(userId, month) {
     [userId, month]
   );
 
-  const shouldHaveKeys = new Set(evaluateAchievementKeys(monthLogsRes.rows, getTodayISO()));
+  const streakEnd = getStreakEvaluationEndISO(month);
+  const datesForStreakRes = await dbQuery(
+    `SELECT DISTINCT date FROM time_logs WHERE user_id = $1 AND date <= $2 ORDER BY date ASC`,
+    [userId, streakEnd]
+  );
+  const streakDates = datesForStreakRes.rows.map((r) => r.date);
+
+  const shouldHaveKeys = new Set(evaluateAchievementKeys(monthLogsRes.rows, streakEnd, streakDates));
 
   const existingRes = await dbQuery(
     `SELECT achievement_key, month, unlocked_at
@@ -752,18 +784,17 @@ async function buildLeaderboard(selectedMonth = null) {
   }));
 
   const todayISO = getTodayISO();
-  const datesWhere = selectedMonth ? 'WHERE substr(date, 1, 7) = $1' : '';
-  const datesParams = selectedMonth ? [selectedMonth] : [];
+  const streakEndISO = selectedMonth ? getStreakEvaluationEndISO(selectedMonth) : todayISO;
 
   const datesRes = await dbQuery(
     `SELECT user_id, date
      FROM (
        SELECT DISTINCT user_id, date
        FROM time_logs
-       ${datesWhere}
+       WHERE date <= $1
      ) d
      ORDER BY user_id ASC, date ASC`,
-    datesParams
+    [streakEndISO]
   );
 
   const datesByUser = new Map();
@@ -776,7 +807,7 @@ async function buildLeaderboard(selectedMonth = null) {
 
   const toDate = (iso) => new Date(iso + 'T00:00:00');
   return rows.map((row) => {
-    const dates = (datesByUser.get(row.userId) || []).filter((d) => d && d <= todayISO);
+    const dates = (datesByUser.get(row.userId) || []).filter((d) => d && d <= streakEndISO);
     if (dates.length === 0) return { ...row, streak: 0 };
 
     let streak = 1;

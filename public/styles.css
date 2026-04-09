@@ -396,9 +396,9 @@ input:focus {
 }
 
 .app-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 1rem;
   margin-bottom: 1.25rem;
 }
@@ -407,10 +407,18 @@ input:focus {
   display: flex;
   gap: 0.5rem;
   align-items: center;
+  justify-self: end;
 }
 
 .app-header h2 {
   margin: 0 0 0.15rem;
+}
+
+.app-header-center-title {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 800;
+  text-align: center;
 }
 
 .app-header p {
@@ -449,6 +457,19 @@ input:focus {
 .subcard h3 {
   margin: 0 0 0.75rem;
   font-size: 1rem;
+}
+
+.presence-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.presence-warning {
+  margin: 0.7rem 0 0.35rem;
+  color: #dc2626;
+  font-size: 1.1rem;
+  font-weight: 800;
 }
 
 .table-wrapper {
@@ -693,6 +714,22 @@ th {
 
   .header h1 {
     font-size: 1.8rem;
+  }
+
+  .app-header {
+    grid-template-columns: 1fr;
+    justify-items: start;
+    gap: 0.7rem;
+  }
+
+  .app-header-center-title {
+    width: 100%;
+    text-align: left;
+  }
+
+  .header-actions {
+    justify-self: start;
+    flex-wrap: wrap;
   }
 }
 
