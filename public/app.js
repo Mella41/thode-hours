@@ -63,6 +63,8 @@ const achievementsPast = document.getElementById('achievements-past');
 const presenceToggleBtn = document.getElementById('presence-toggle-btn');
 const presenceStatus = document.getElementById('presence-status');
 const presenceList = document.getElementById('presence-list');
+const recentActivityScroll = document.getElementById('recent-activity-scroll');
+const recentActivityList = document.getElementById('recent-activity-list');
 const checkOutModal = document.getElementById('check-out-modal');
 const checkOutModalSubtitle = document.getElementById('check-out-modal-subtitle');
 const checkOutLogDate = document.getElementById('check-out-log-date');
@@ -86,6 +88,10 @@ let viewedUserId = null;
 let viewedUserName = '';
 let presenceState = { isCheckedIn: false, users: [] };
 let presencePollIntervalId = null;
+let recentActivityPollIntervalId = null;
+let recentActivityRotateIntervalId = null;
+
+const RECENT_ACTIVITY_LIMIT = 20;
 let checkOutContext = {
   startDt: null,
   endDt: null,
@@ -472,6 +478,11 @@ logoutBtn.addEventListener('click', () => {
     clearInterval(presencePollIntervalId);
     presencePollIntervalId = null;
   }
+  if (recentActivityPollIntervalId) {
+    clearInterval(recentActivityPollIntervalId);
+    recentActivityPollIntervalId = null;
+  }
+  stopRecentActivityRotation();
 });
 
 if (feedbackForm) {
@@ -777,6 +788,63 @@ async function loadPresence() {
   renderPresence();
 }
 
+function stopRecentActivityRotation() {
+  if (recentActivityRotateIntervalId) {
+    clearInterval(recentActivityRotateIntervalId);
+    recentActivityRotateIntervalId = null;
+  }
+}
+
+function startRecentActivityRotation() {
+  stopRecentActivityRotation();
+  const el = recentActivityScroll;
+  if (!el) return;
+  el.scrollTop = 0;
+  recentActivityRotateIntervalId = setInterval(() => {
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    if (maxScroll <= 4) return;
+    const step = 44;
+    if (el.scrollTop >= maxScroll - step) {
+      el.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      el.scrollBy({ top: step, behavior: 'smooth' });
+    }
+  }, 4500);
+}
+
+function renderRecentActivity(items) {
+  if (!recentActivityList) return;
+  recentActivityList.innerHTML = '';
+  if (!items || items.length === 0) {
+    const li = document.createElement('li');
+    li.className = 'recent-activity-empty';
+    li.textContent = 'No recent achievements yet.';
+    recentActivityList.appendChild(li);
+    stopRecentActivityRotation();
+    return;
+  }
+  items.forEach((item) => {
+    const li = document.createElement('li');
+    li.className = 'recent-activity-item';
+    const name = item.userName != null ? String(item.userName) : 'Someone';
+    const tier = item.tier != null ? String(item.tier) : '?';
+    const title = item.title != null ? String(item.title) : 'Achievement';
+    li.textContent = `${name} unlocked a Tier ${tier} achievement; ${title}`;
+    recentActivityList.appendChild(li);
+  });
+  startRecentActivityRotation();
+}
+
+async function loadRecentActivity() {
+  if (!recentActivityList || !currentUser) return;
+  try {
+    const data = await api(`/api/activity/recent-achievements?limit=${RECENT_ACTIVITY_LIMIT}`);
+    renderRecentActivity(data.items || []);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 function renderLeaderboard(data, currentUserId, targetBody) {
   if (!targetBody) return;
   targetBody.innerHTML = '';
@@ -858,6 +926,7 @@ async function refreshSummaryAndLeaderboard() {
     renderLeaderboard(allTimeLeaderboard, currentUser.userId, leaderboardAllTimeBody);
     renderAchievementsModal();
     await loadPresence();
+    await loadRecentActivity();
   } catch (err) {
     console.error(err);
   }
@@ -883,6 +952,12 @@ function initLoggedIn(user) {
   presencePollIntervalId = setInterval(() => {
     if (!currentUser) return;
     loadPresence().catch(() => {});
+  }, 30000);
+
+  if (recentActivityPollIntervalId) clearInterval(recentActivityPollIntervalId);
+  recentActivityPollIntervalId = setInterval(() => {
+    if (!currentUser) return;
+    loadRecentActivity().catch(() => {});
   }, 30000);
 }
 

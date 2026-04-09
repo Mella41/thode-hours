@@ -855,6 +855,42 @@ app.get('/api/leaderboard/all-time', authMiddleware, async (_req, res) => {
   }
 });
 
+// Recent achievement unlocks (all users) for the activity feed
+app.get('/api/activity/recent-achievements', authMiddleware, async (req, res) => {
+  const raw = req.query.limit;
+  const parsed = raw != null ? Number(raw) : 20;
+  const limit = Number.isFinite(parsed) ? Math.min(50, Math.max(1, Math.floor(parsed))) : 20;
+  const maxAgeDays = 14;
+
+  try {
+    const result = await dbQuery(
+      `SELECT ua.unlocked_at AS "unlockedAt", ua.achievement_key AS "achievementKey",
+              COALESCE(u.username, u.name, 'User ' || u.id::text) AS "userName"
+       FROM user_achievements ua
+       JOIN users u ON u.id = ua.user_id
+       WHERE ua.unlocked_at >= now() - ($2 * INTERVAL '1 day')
+       ORDER BY ua.unlocked_at DESC
+       LIMIT $1`,
+      [limit, maxAgeDays]
+    );
+
+    const items = result.rows.map((row) => {
+      const def = ACHIEVEMENT_BY_KEY.get(row.achievementKey);
+      return {
+        userName: row.userName,
+        tier: def ? def.tier : '?',
+        title: def ? def.title : row.achievementKey,
+        unlockedAt: row.unlockedAt
+      };
+    });
+
+    res.json({ items });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load recent activity.' });
+  }
+});
+
 // Delete a time log (today or yesterday only)
 app.delete('/api/logs/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;

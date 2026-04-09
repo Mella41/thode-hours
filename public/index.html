@@ -125,13 +125,21 @@
             </div>
           </div>
 
-          <section class="subcard">
-            <h3 class="presence-title">At Thode right now</h3>
-            <button id="presence-toggle-btn" class="btn subtle" type="button">Check in</button>
-            <p class="presence-warning">Dont Forget to check out when you're leaving!!</p>
-            <p class="hint" id="presence-status"></p>
-            <ul id="presence-list" class="presence-list"></ul>
-          </section>
+          <div class="presence-activity-grid">
+            <section class="subcard presence-panel">
+              <h3 class="presence-title">At Thode right now</h3>
+              <button id="presence-toggle-btn" class="btn subtle" type="button">Check in</button>
+              <p class="presence-warning">Dont Forget to check out when you're leaving!!</p>
+              <p class="hint" id="presence-status"></p>
+              <ul id="presence-list" class="presence-list"></ul>
+            </section>
+            <section class="subcard recent-activity-card" aria-labelledby="recent-activity-heading">
+              <h3 id="recent-activity-heading" class="recent-activity-title">Recent activity</h3>
+              <div id="recent-activity-scroll" class="recent-activity-scroll">
+                <ul id="recent-activity-list" class="recent-activity-list" aria-live="polite"></ul>
+              </div>
+            </section>
+          </div>
 
           <div class="layout">
             <section class="subcard">
