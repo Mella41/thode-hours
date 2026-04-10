@@ -618,6 +618,10 @@ tbody tr:hover {
   font-size: 0.9rem;
 }
 
+#open-past-achievements-btn {
+  margin-top: 0.6rem;
+}
+
 .modal {
   position: fixed;
   inset: 0;
@@ -678,6 +682,7 @@ tbody tr:hover {
 .achievements-past {
   display: grid;
   gap: 0.45rem;
+  margin-top: 0.75rem;
 }
 
 .achievements-month {
@@ -685,6 +690,11 @@ tbody tr:hover {
   border-radius: 0.5rem;
   padding: 0.45rem 0.55rem;
   background: var(--panel-green-soft);
+}
+
+.achievements-modal-content {
+  max-height: 80vh;
+  overflow-y: auto;
 }
 
 .achievements-month-title {

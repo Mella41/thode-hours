@@ -60,6 +60,9 @@ const leaderboardAllTimeBody = document.getElementById('leaderboard-alltime-body
 const achievementsTitle = document.getElementById('achievements-title');
 const achievementsCurrent = document.getElementById('achievements-current');
 const achievementsPast = document.getElementById('achievements-past');
+const openPastAchievementsBtn = document.getElementById('open-past-achievements-btn');
+const pastAchievementsModal = document.getElementById('past-achievements-modal');
+const closePastAchievementsBtn = document.getElementById('close-past-achievements-btn');
 const presenceToggleBtn = document.getElementById('presence-toggle-btn');
 const presenceStatus = document.getElementById('presence-status');
 const presenceList = document.getElementById('presence-list');
@@ -260,6 +263,12 @@ function setCheckOutModalVisible(visible) {
   if (!checkOutModal) return;
   checkOutModal.classList.toggle('hidden', !visible);
   checkOutModal.setAttribute('aria-hidden', visible ? 'false' : 'true');
+}
+
+function setPastAchievementsModalVisible(visible) {
+  if (!pastAchievementsModal) return;
+  pastAchievementsModal.classList.toggle('hidden', !visible);
+  pastAchievementsModal.setAttribute('aria-hidden', visible ? 'false' : 'true');
 }
 
 function updateCheckOutPreview() {
@@ -1236,6 +1245,21 @@ if (checkOutModal) {
         alert(err.message || 'Failed to log check-out time.');
         // Keep presence checked in so the user can retry with adjusted times.
       }
+    });
+  }
+}
+
+if (openPastAchievementsBtn && pastAchievementsModal && closePastAchievementsBtn) {
+  const overlay = pastAchievementsModal.querySelector('[data-close-past-achievements-modal="true"]');
+  openPastAchievementsBtn.addEventListener('click', () => {
+    setPastAchievementsModalVisible(true);
+  });
+  closePastAchievementsBtn.addEventListener('click', () => {
+    setPastAchievementsModalVisible(false);
+  });
+  if (overlay) {
+    overlay.addEventListener('click', () => {
+      setPastAchievementsModalVisible(false);
     });
   }
 }
