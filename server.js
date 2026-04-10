@@ -15,10 +15,32 @@ process.env.TZ = process.env.TZ || 'America/Toronto';
 const MAC_EMAIL_DOMAIN = '@mcmaster.ca';
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 let dbReady = false;
+const DB_POOL_MAX = Number(process.env.DB_POOL_MAX || 10);
+const DB_IDLE_TIMEOUT_MS = Number(process.env.DB_IDLE_TIMEOUT_MS || 30000);
+const DB_CONNECTION_TIMEOUT_MS = Number(process.env.DB_CONNECTION_TIMEOUT_MS || 10000);
 
 const AUTO_CHECK_OUT_HOUR = Number(process.env.AUTO_CHECK_OUT_HOUR || 6); // 0-23
 const AUTO_CHECK_OUT_MINUTE = Number(process.env.AUTO_CHECK_OUT_MINUTE || 0);
 let lastAutoCheckOutISODate = null;
+
+function compactErrorForLogs(err) {
+  if (!err || typeof err !== 'object') return err;
+  return {
+    name: err.name,
+    message: err.message,
+    code: err.code,
+    severity: err.severity,
+    detail: err.detail,
+    hint: err.hint,
+    where: err.where,
+    stack: typeof err.stack === 'string' ? err.stack.split('\n').slice(0, 6).join('\n') : undefined
+  };
+}
+
+const originalConsoleError = console.error.bind(console);
+console.error = (...args) => {
+  originalConsoleError(...args.map((arg) => compactErrorForLogs(arg)));
+};
 
 async function autoCheckOutEveryone() {
   // “Check out” means remove presence rows only (no time_logs inserted).
@@ -62,12 +84,20 @@ if (!process.env.DATABASE_URL) {
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   // Supabase requires SSL; this is the common Node config for it
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false },
+  max: DB_POOL_MAX,
+  idleTimeoutMillis: DB_IDLE_TIMEOUT_MS,
+  connectionTimeoutMillis: DB_CONNECTION_TIMEOUT_MS,
+  keepAlive: true
 });
 
 async function dbQuery(text, params = []) {
   return pool.query(text, params);
 }
+
+pool.on('error', (err) => {
+  console.error('Unexpected Postgres pool error', err);
+});
 
 async function initDb() {
   await dbQuery(`
@@ -1163,13 +1193,28 @@ app.post('/api/feedback', authMiddleware, async (req, res) => {
   }
 });
 
-// Fallback to SPA
+// Fallback to SPA for app routes only.
+// Important: never return index.html for missing static assets (e.g. .css/.js),
+// otherwise browsers render an unstyled/broken page when an asset request fails.
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  const reqPath = req.path || '';
+  const hasFileExtension = path.extname(reqPath) !== '';
+  if (hasFileExtension) {
+    return res.status(404).send('Not found');
+  }
+  return res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception', err);
 });
 
 (async () => {
