@@ -35,7 +35,7 @@ function scheduleAutoCheckOut() {
   const msUntil = next.getTime() - now.getTime();
   setTimeout(async () => {
     try {
-      const todayISO = getCurrentDateISO();
+      const todayISO = getTodayISO();
       if (lastAutoCheckOutISODate !== todayISO) {
         await autoCheckOutEveryone();
         lastAutoCheckOutISODate = todayISO;
