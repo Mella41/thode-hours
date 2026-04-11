@@ -39,12 +39,22 @@ const currentMonthLabel = document.getElementById('current-month-label');
 const monthPrevBtn = document.getElementById('month-prev');
 const monthNextBtn = document.getElementById('month-next');
 const logoutBtn = document.getElementById('logout-btn');
+const resetPasswordStartBtn = document.getElementById('reset-password-start-btn');
+const resetPasswordStep1 = document.getElementById('reset-password-step1');
+const resetPasswordStep2 = document.getElementById('reset-password-step2');
+const resetPasswordNextBtn = document.getElementById('reset-password-next-btn');
+const resetPasswordCancelBtn = document.getElementById('reset-password-cancel-btn');
+const resetPasswordBackBtn = document.getElementById('reset-password-back-btn');
 const changePasswordForm = document.getElementById('change-password-form');
 const changePasswordCurrent = document.getElementById('change-password-current');
 const changePasswordNew = document.getElementById('change-password-new');
 const changePasswordConfirm = document.getElementById('change-password-confirm');
+const changePasswordStep1Error = document.getElementById('change-password-step1-error');
 const changePasswordError = document.getElementById('change-password-error');
 const changePasswordSuccess = document.getElementById('change-password-success');
+
+/** Set when step 1 verifies; used with final change-password request. Cleared on wizard reset / logout. */
+let resetPasswordVerifiedCurrent = null;
 
 const logForm = document.getElementById('log-form');
 const logDate = document.getElementById('log-date');
@@ -531,16 +541,90 @@ signupForm.addEventListener('submit', async (e) => {
 
 // Forgot password UI removed
 
+function resetResetPasswordWizard() {
+  resetPasswordVerifiedCurrent = null;
+  if (resetPasswordStartBtn) resetPasswordStartBtn.classList.remove('hidden');
+  if (resetPasswordStep1) resetPasswordStep1.classList.add('hidden');
+  if (resetPasswordStep2) resetPasswordStep2.classList.add('hidden');
+  if (changePasswordCurrent) changePasswordCurrent.value = '';
+  if (changePasswordNew) changePasswordNew.value = '';
+  if (changePasswordConfirm) changePasswordConfirm.value = '';
+  if (changePasswordStep1Error) changePasswordStep1Error.textContent = '';
+  if (changePasswordError) changePasswordError.textContent = '';
+  if (changePasswordSuccess) changePasswordSuccess.textContent = '';
+}
+
+if (resetPasswordStartBtn && resetPasswordStep1 && resetPasswordStep2) {
+  resetPasswordStartBtn.addEventListener('click', () => {
+    if (!currentUser) return;
+    resetPasswordVerifiedCurrent = null;
+    if (changePasswordStep1Error) changePasswordStep1Error.textContent = '';
+    if (changePasswordError) changePasswordError.textContent = '';
+    if (changePasswordSuccess) changePasswordSuccess.textContent = '';
+    resetPasswordStartBtn.classList.add('hidden');
+    resetPasswordStep1.classList.remove('hidden');
+    resetPasswordStep2.classList.add('hidden');
+    if (changePasswordCurrent) changePasswordCurrent.focus();
+  });
+
+  if (resetPasswordCancelBtn) {
+    resetPasswordCancelBtn.addEventListener('click', () => {
+      resetResetPasswordWizard();
+    });
+  }
+
+  if (resetPasswordNextBtn) {
+    resetPasswordNextBtn.addEventListener('click', async () => {
+      if (!currentUser) return;
+      if (changePasswordStep1Error) changePasswordStep1Error.textContent = '';
+      const password = changePasswordCurrent && changePasswordCurrent.value;
+      if (!password) {
+        if (changePasswordStep1Error) changePasswordStep1Error.textContent = 'Enter your current password.';
+        return;
+      }
+      try {
+        await api('/api/verify-password', {
+          method: 'POST',
+          body: JSON.stringify({ password })
+        });
+        resetPasswordVerifiedCurrent = password;
+        resetPasswordStep1.classList.add('hidden');
+        resetPasswordStep2.classList.remove('hidden');
+        if (changePasswordNew) changePasswordNew.focus();
+      } catch (err) {
+        if (changePasswordStep1Error) {
+          changePasswordStep1Error.textContent = err.message || 'Could not verify password.';
+        }
+      }
+    });
+  }
+
+  if (resetPasswordBackBtn) {
+    resetPasswordBackBtn.addEventListener('click', () => {
+      resetPasswordVerifiedCurrent = null;
+      if (changePasswordNew) changePasswordNew.value = '';
+      if (changePasswordConfirm) changePasswordConfirm.value = '';
+      if (changePasswordError) changePasswordError.textContent = '';
+      if (changePasswordSuccess) changePasswordSuccess.textContent = '';
+      resetPasswordStep2.classList.add('hidden');
+      resetPasswordStep1.classList.remove('hidden');
+    });
+  }
+}
+
 if (changePasswordForm) {
   changePasswordForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!currentUser) return;
     if (changePasswordError) changePasswordError.textContent = '';
     if (changePasswordSuccess) changePasswordSuccess.textContent = '';
-    const currentPassword = changePasswordCurrent && changePasswordCurrent.value;
+    if (resetPasswordVerifiedCurrent == null) {
+      if (changePasswordError) changePasswordError.textContent = 'Verify your current password first.';
+      return;
+    }
     const newPassword = changePasswordNew && changePasswordNew.value;
     const confirm = changePasswordConfirm && changePasswordConfirm.value;
-    if (!currentPassword || !newPassword) return;
+    if (!newPassword) return;
     if (newPassword !== confirm) {
       if (changePasswordError) changePasswordError.textContent = 'New passwords do not match.';
       return;
@@ -548,12 +632,23 @@ if (changePasswordForm) {
     try {
       await api('/api/change-password', {
         method: 'POST',
-        body: JSON.stringify({ currentPassword, newPassword })
+        body: JSON.stringify({
+          currentPassword: resetPasswordVerifiedCurrent,
+          newPassword
+        })
       });
+      resetPasswordVerifiedCurrent = null;
+      if (resetPasswordStartBtn) resetPasswordStartBtn.classList.remove('hidden');
+      if (resetPasswordStep1) resetPasswordStep1.classList.add('hidden');
+      if (resetPasswordStep2) resetPasswordStep2.classList.add('hidden');
+      if (changePasswordCurrent) changePasswordCurrent.value = '';
+      if (changePasswordNew) changePasswordNew.value = '';
+      if (changePasswordConfirm) changePasswordConfirm.value = '';
+      if (changePasswordStep1Error) changePasswordStep1Error.textContent = '';
+      if (changePasswordError) changePasswordError.textContent = '';
       if (changePasswordSuccess) {
         changePasswordSuccess.textContent = 'Password updated.';
       }
-      changePasswordForm.reset();
     } catch (err) {
       if (changePasswordError) changePasswordError.textContent = err.message || 'Failed to change password.';
     }
@@ -575,6 +670,7 @@ logoutBtn.addEventListener('click', () => {
   stopRecentActivityRotation();
   checkInReminderSessionAt = null;
   checkInReminderLastPromptMs = 0;
+  resetResetPasswordWizard();
 });
 
 if (feedbackForm) {

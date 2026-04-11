@@ -641,6 +641,31 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// Verify current password (e.g. step before changing password in the UI)
+app.post('/api/verify-password', authMiddleware, async (req, res) => {
+  const userId = Number(req.user?.userId);
+  const { password } = req.body || {};
+  if (!userId || password == null || password === '') {
+    return res.status(400).json({ error: 'Password is required.' });
+  }
+
+  try {
+    const result = await dbQuery('SELECT password FROM users WHERE id = $1', [userId]);
+    const row = result.rows[0];
+    if (!row) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    if (!bcrypt.compareSync(password, row.password)) {
+      // 403 so the client does not treat this as "session expired" (401).
+      return res.status(403).json({ error: 'Password is incorrect.' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to verify password.' });
+  }
+});
+
 // Change password while logged in (no email required)
 app.post('/api/change-password', authMiddleware, async (req, res) => {
   const userId = Number(req.user?.userId);
@@ -662,7 +687,7 @@ app.post('/api/change-password', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: 'User not found.' });
     }
     if (!bcrypt.compareSync(currentPassword, row.password)) {
-      return res.status(401).json({ error: 'Current password is incorrect.' });
+      return res.status(403).json({ error: 'Current password is incorrect.' });
     }
     const hashed = bcrypt.hashSync(newPassword, 10);
     await dbQuery('UPDATE users SET password = $1 WHERE id = $2', [hashed, userId]);
