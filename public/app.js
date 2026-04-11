@@ -39,6 +39,12 @@ const currentMonthLabel = document.getElementById('current-month-label');
 const monthPrevBtn = document.getElementById('month-prev');
 const monthNextBtn = document.getElementById('month-next');
 const logoutBtn = document.getElementById('logout-btn');
+const changePasswordForm = document.getElementById('change-password-form');
+const changePasswordCurrent = document.getElementById('change-password-current');
+const changePasswordNew = document.getElementById('change-password-new');
+const changePasswordConfirm = document.getElementById('change-password-confirm');
+const changePasswordError = document.getElementById('change-password-error');
+const changePasswordSuccess = document.getElementById('change-password-success');
 
 const logForm = document.getElementById('log-form');
 const logDate = document.getElementById('log-date');
@@ -524,6 +530,35 @@ signupForm.addEventListener('submit', async (e) => {
 });
 
 // Forgot password UI removed
+
+if (changePasswordForm) {
+  changePasswordForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    if (changePasswordError) changePasswordError.textContent = '';
+    if (changePasswordSuccess) changePasswordSuccess.textContent = '';
+    const currentPassword = changePasswordCurrent && changePasswordCurrent.value;
+    const newPassword = changePasswordNew && changePasswordNew.value;
+    const confirm = changePasswordConfirm && changePasswordConfirm.value;
+    if (!currentPassword || !newPassword) return;
+    if (newPassword !== confirm) {
+      if (changePasswordError) changePasswordError.textContent = 'New passwords do not match.';
+      return;
+    }
+    try {
+      await api('/api/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      if (changePasswordSuccess) {
+        changePasswordSuccess.textContent = 'Password updated.';
+      }
+      changePasswordForm.reset();
+    } catch (err) {
+      if (changePasswordError) changePasswordError.textContent = err.message || 'Failed to change password.';
+    }
+  });
+}
 
 logoutBtn.addEventListener('click', () => {
   clearSession();

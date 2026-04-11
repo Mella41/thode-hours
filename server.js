@@ -641,6 +641,38 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+// Change password while logged in (no email required)
+app.post('/api/change-password', authMiddleware, async (req, res) => {
+  const userId = Number(req.user?.userId);
+  const { currentPassword, newPassword } = req.body || {};
+  if (!userId || !currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Current password and new password are required.' });
+  }
+  if (newPassword.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+  }
+  if (newPassword === currentPassword) {
+    return res.status(400).json({ error: 'New password must be different from your current password.' });
+  }
+
+  try {
+    const result = await dbQuery('SELECT password FROM users WHERE id = $1', [userId]);
+    const row = result.rows[0];
+    if (!row) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    if (!bcrypt.compareSync(currentPassword, row.password)) {
+      return res.status(401).json({ error: 'Current password is incorrect.' });
+    }
+    const hashed = bcrypt.hashSync(newPassword, 10);
+    await dbQuery('UPDATE users SET password = $1 WHERE id = $2', [hashed, userId]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to change password.' });
+  }
+});
+
 // Add a time log
 app.post('/api/logs', authMiddleware, async (req, res) => {
   const { date: rawDate, arrival, departure, productivity } = req.body || {};

@@ -327,6 +327,30 @@
               <p class="error" id="feedback-error"></p>
             </form>
           </section>
+
+          <section class="subcard" id="help-features-section">
+            <h3>Other Help features</h3>
+            <form id="change-password-form">
+              <p class="hint">
+                Enter your current password, then type your new password twice to confirm.
+              </p>
+              <div class="field">
+                <label for="change-password-current">Current password</label>
+                <input type="password" id="change-password-current" autocomplete="current-password" required />
+              </div>
+              <div class="field">
+                <label for="change-password-new">New password</label>
+                <input type="password" id="change-password-new" autocomplete="new-password" required minlength="6" />
+              </div>
+              <div class="field">
+                <label for="change-password-confirm">Re-enter new password</label>
+                <input type="password" id="change-password-confirm" autocomplete="new-password" required minlength="6" />
+              </div>
+              <button type="submit" class="btn primary">Reset password</button>
+              <p class="error" id="change-password-error"></p>
+              <p class="success" id="change-password-success"></p>
+            </form>
+          </section>
         </section>
       </main>
 
