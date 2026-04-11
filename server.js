@@ -8,7 +8,8 @@ const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
 // Ensure "6:00 AM" auto-checkout uses a consistent timezone.
 // If your server is already configured for America/Toronto, this is harmless.
 process.env.TZ = process.env.TZ || 'America/Toronto';
@@ -1349,8 +1350,8 @@ app.get('*', (req, res) => {
   return res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`Server running on http://${HOST}:${PORT}`);
 });
 
 process.on('unhandledRejection', (reason) => {
