@@ -185,6 +185,14 @@ function getTodayISO() {
   return `${year}-${month}-${day}`;
 }
 
+/** Current calendar month as `YYYY-MM` (server local date). */
+function getCurrentMonthISO() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const monthStr = (now.getMonth() + 1).toString().padStart(2, '0');
+  return `${year}-${monthStr}`;
+}
+
 function getYesterdayISO() {
   const date = new Date();
   date.setDate(date.getDate() - 1);
@@ -425,6 +433,31 @@ function computeStreakEndingOn(dateSet, endISO) {
 }
 
 async function syncAchievementsForMonth(userId, month) {
+  // Future months must not grant achievements: streak/history would still match
+  // while month logs are empty, so badges would unlock under the wrong month.
+  if (month > getCurrentMonthISO()) {
+    const del = await dbQuery(
+      `DELETE FROM user_achievements
+       WHERE user_id = $1 AND month = $2
+       RETURNING achievement_key, month`,
+      [userId, month]
+    );
+    const removed = [];
+    for (const row of del.rows) {
+      const def = ACHIEVEMENT_BY_KEY.get(row.achievement_key);
+      if (def) {
+        removed.push({
+          key: def.key,
+          tier: def.tier,
+          title: def.title,
+          subtitle: def.subtitle,
+          month: row.month
+        });
+      }
+    }
+    return { newlyUnlocked: [], removed };
+  }
+
   const monthLogsRes = await dbQuery(
     `SELECT date, arrival, departure, hours, productivity
      FROM time_logs
@@ -719,10 +752,7 @@ app.get('/api/summary', authMiddleware, async (req, res) => {
     return res.status(400).json({ error: 'userId is required.' });
   }
 
-  const now = new Date();
-  const year = now.getFullYear();
-  const monthStr = (now.getMonth() + 1).toString().padStart(2, '0');
-  const currentMonth = `${year}-${monthStr}`;
+  const currentMonth = getCurrentMonthISO();
   const selectedMonth = (month || currentMonth).slice(0, 7);
 
   try {
@@ -877,10 +907,7 @@ async function buildLeaderboard(selectedMonth = null) {
 
 app.get('/api/leaderboard', authMiddleware, async (req, res) => {
   const { month } = req.query;
-  const now = new Date();
-  const year = now.getFullYear();
-  const monthStr = (now.getMonth() + 1).toString().padStart(2, '0');
-  const currentMonth = `${year}-${monthStr}`;
+  const currentMonth = getCurrentMonthISO();
   const selectedMonth = (month || currentMonth).slice(0, 7);
 
   try {
