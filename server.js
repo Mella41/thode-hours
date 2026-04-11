@@ -407,6 +407,22 @@ function mapAchievementRows(rows) {
     .filter(Boolean);
 }
 
+function computeStreakEndingOn(dateSet, endISO) {
+  if (!dateSet || !dateSet.has(endISO)) return 0;
+  let streak = 0;
+  const cursor = new Date(endISO + 'T00:00:00');
+  while (true) {
+    const y = cursor.getFullYear();
+    const m = String(cursor.getMonth() + 1).padStart(2, '0');
+    const d = String(cursor.getDate()).padStart(2, '0');
+    const iso = `${y}-${m}-${d}`;
+    if (!dateSet.has(iso)) break;
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
 async function syncAchievementsForMonth(userId, month) {
   const monthLogsRes = await dbQuery(
     `SELECT date, arrival, departure, hours, productivity
@@ -918,6 +934,134 @@ app.get('/api/activity/recent-achievements', authMiddleware, async (req, res) =>
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to load recent activity.' });
+  }
+});
+
+// Daily highlights (yesterday)
+app.get('/api/activity/daily-highlights', authMiddleware, async (_req, res) => {
+  const yesterday = getYesterdayISO();
+
+  try {
+    const hoursRes = await dbQuery(
+      `SELECT COALESCE(u.username, u.name, 'User ' || t.user_id::text) AS name,
+              SUM(t.hours) AS total_hours
+       FROM time_logs t
+       LEFT JOIN users u ON u.id = t.user_id
+       WHERE t.date = $1
+       GROUP BY t.user_id, u.username, u.name
+       ORDER BY total_hours DESC, name ASC`,
+      [yesterday]
+    );
+
+    const productiveRes = await dbQuery(
+      `SELECT COALESCE(u.username, u.name, 'User ' || t.user_id::text) AS name,
+              SUM(
+                CASE
+                  WHEN t.productivity IN ('Super locked', 'Locked') THEN t.hours
+                  ELSE 0
+                END
+              ) AS productive_hours
+       FROM time_logs t
+       LEFT JOIN users u ON u.id = t.user_id
+       WHERE t.date = $1
+       GROUP BY t.user_id, u.username, u.name
+       ORDER BY productive_hours DESC, name ASC`,
+      [yesterday]
+    );
+
+    const achievementsRes = await dbQuery(
+      `SELECT COALESCE(u.username, u.name, 'User ' || u.id::text) AS name,
+              COUNT(*) AS achievement_count
+       FROM user_achievements ua
+       JOIN users u ON u.id = ua.user_id
+       WHERE DATE(ua.unlocked_at AT TIME ZONE 'America/Toronto') = $1::date
+       GROUP BY u.id, u.username, u.name
+       ORDER BY achievement_count DESC, name ASC`,
+      [yesterday]
+    );
+
+    const streakDatesRes = await dbQuery(
+      `SELECT DISTINCT user_id, date
+       FROM time_logs
+       WHERE date <= $1
+       ORDER BY user_id ASC, date ASC`,
+      [yesterday]
+    );
+
+    const streaksByUser = new Map();
+    for (const row of streakDatesRes.rows) {
+      const uid = Number(row.user_id);
+      if (!streaksByUser.has(uid)) {
+        streaksByUser.set(uid, new Set());
+      }
+      streaksByUser.get(uid).add(row.date);
+    }
+
+    const userNamesRes = await dbQuery(
+      `SELECT id, COALESCE(username, name, 'User ' || id::text) AS name
+       FROM users`
+    );
+    const userNameById = new Map(userNamesRes.rows.map((r) => [Number(r.id), r.name]));
+    const streakRows = [];
+    for (const [uid, dateSet] of streaksByUser.entries()) {
+      const streak = computeStreakEndingOn(dateSet, yesterday);
+      if (streak > 0) {
+        streakRows.push({
+          name: userNameById.get(uid) || `User ${uid}`,
+          streak
+        });
+      }
+    }
+    streakRows.sort((a, b) => b.streak - a.streak || a.name.localeCompare(b.name));
+
+    function toTop(rows, valueKey) {
+      if (!rows || rows.length === 0) return { winners: [], value: 0 };
+      const topValue = Number(rows[0][valueKey] || 0);
+      if (!Number.isFinite(topValue) || topValue <= 0) return { winners: [], value: 0 };
+      return {
+        winners: rows
+          .filter((r) => Number(r[valueKey] || 0) === topValue)
+          .map((r) => r.name),
+        value: topValue
+      };
+    }
+
+    const longestAtThode = toTop(hoursRes.rows, 'total_hours');
+    const longestProductive = toTop(productiveRes.rows, 'productive_hours');
+    const mostAchievements = toTop(achievementsRes.rows, 'achievement_count');
+    const highestStreak = streakRows.length
+      ? {
+          winners: streakRows
+            .filter((r) => r.streak === streakRows[0].streak)
+            .map((r) => r.name),
+          value: streakRows[0].streak
+        }
+      : { winners: [], value: 0 };
+
+    res.json({
+      date: yesterday,
+      highlights: {
+        longestAtThode: {
+          winners: longestAtThode.winners,
+          hours: longestAtThode.value
+        },
+        longestProductive: {
+          winners: longestProductive.winners,
+          hours: longestProductive.value
+        },
+        mostAchievements: {
+          winners: mostAchievements.winners,
+          count: mostAchievements.value
+        },
+        highestStreak: {
+          winners: highestStreak.winners,
+          streak: highestStreak.value
+        }
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load daily highlights.' });
   }
 });
 

@@ -68,6 +68,7 @@ const presenceStatus = document.getElementById('presence-status');
 const presenceList = document.getElementById('presence-list');
 const recentActivityScroll = document.getElementById('recent-activity-scroll');
 const recentActivityList = document.getElementById('recent-activity-list');
+const dailyHighlightsList = document.getElementById('daily-highlights-list');
 const checkOutModal = document.getElementById('check-out-modal');
 const checkOutModalSubtitle = document.getElementById('check-out-modal-subtitle');
 const checkOutLogDate = document.getElementById('check-out-log-date');
@@ -959,11 +960,82 @@ function renderRecentActivity(items) {
   startRecentActivityRotation();
 }
 
+function winnerNamesLine(winners) {
+  if (!Array.isArray(winners) || winners.length === 0) return 'No one';
+  return winners.join(', ');
+}
+
+function renderDailyHighlights(highlights) {
+  if (!dailyHighlightsList) return;
+  dailyHighlightsList.innerHTML = '';
+
+  if (!highlights) {
+    const li = document.createElement('li');
+    li.textContent = 'No highlights for yesterday yet.';
+    dailyHighlightsList.appendChild(li);
+    return;
+  }
+
+  const lines = [];
+  const longest = highlights.longestAtThode;
+  if (longest && longest.hours > 0) {
+    lines.push(
+      `${winnerNamesLine(longest.winners)} spent the longest at Thode yesterday (${Number(longest.hours).toFixed(2)}h).`
+    );
+  } else {
+    lines.push('No one logged hours yesterday.');
+  }
+
+  const productive = highlights.longestProductive;
+  if (productive && productive.hours > 0) {
+    lines.push(
+      `${winnerNamesLine(productive.winners)} was productive for the longest yesterday (${Number(productive.hours).toFixed(2)}h).`
+    );
+  } else {
+    lines.push('No productivity highlights from yesterday yet.');
+  }
+
+  const achievements = highlights.mostAchievements;
+  if (achievements && achievements.count > 0) {
+    lines.push(
+      `${winnerNamesLine(achievements.winners)} unlocked the most achievements yesterday (${achievements.count}).`
+    );
+  } else {
+    lines.push('No achievements were unlocked yesterday.');
+  }
+
+  const streak = highlights.highestStreak;
+  if (streak && streak.streak > 0) {
+    lines.push(
+      `${winnerNamesLine(streak.winners)} achieved the highest streak at present of ${streak.streak}.`
+    );
+  } else {
+    lines.push('No active streaks were present yesterday.');
+  }
+
+  lines.forEach((line) => {
+    const li = document.createElement('li');
+    li.textContent = line;
+    dailyHighlightsList.appendChild(li);
+  });
+}
+
+async function loadDailyHighlights() {
+  if (!dailyHighlightsList || !currentUser) return;
+  try {
+    const data = await api('/api/activity/daily-highlights');
+    renderDailyHighlights(data.highlights || null);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 async function loadRecentActivity() {
   if (!recentActivityList || !currentUser) return;
   try {
     const data = await api(`/api/activity/recent-achievements?limit=${RECENT_ACTIVITY_LIMIT}`);
     renderRecentActivity(data.items || []);
+    await loadDailyHighlights();
   } catch (err) {
     console.error(err);
   }
