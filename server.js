@@ -10,8 +10,7 @@ const { Pool } = require('pg');
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
-// Ensure "6:00 AM" auto-checkout uses a consistent timezone.
-// If your server is already configured for America/Toronto, this is harmless.
+// Keep server-local date behavior consistent.
 process.env.TZ = process.env.TZ || 'America/Toronto';
 const MAC_EMAIL_DOMAIN = '@mcmaster.ca';
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
@@ -20,9 +19,12 @@ const DB_POOL_MAX = Number(process.env.DB_POOL_MAX || 10);
 const DB_IDLE_TIMEOUT_MS = Number(process.env.DB_IDLE_TIMEOUT_MS || 30000);
 const DB_CONNECTION_TIMEOUT_MS = Number(process.env.DB_CONNECTION_TIMEOUT_MS || 10000);
 
-const AUTO_CHECK_OUT_HOUR = Number(process.env.AUTO_CHECK_OUT_HOUR || 6); // 0-23
-const AUTO_CHECK_OUT_MINUTE = Number(process.env.AUTO_CHECK_OUT_MINUTE || 0);
-let lastAutoCheckOutISODate = null;
+const _autoCheckOutHours = Number(process.env.AUTO_CHECK_OUT_MAX_CONTINUOUS_HOURS);
+const AUTO_CHECK_OUT_MAX_CONTINUOUS_HOURS =
+  Number.isFinite(_autoCheckOutHours) && _autoCheckOutHours > 0 ? _autoCheckOutHours : 25;
+const AUTO_CHECK_OUT_SWEEP_INTERVAL_MS = Number(
+  process.env.AUTO_CHECK_OUT_SWEEP_INTERVAL_MS || 5 * 60 * 1000
+);
 
 function compactErrorForLogs(err) {
   if (!err || typeof err !== 'object') return err;
@@ -43,33 +45,35 @@ console.error = (...args) => {
   originalConsoleError(...args.map((arg) => compactErrorForLogs(arg)));
 };
 
-async function autoCheckOutEveryone() {
+async function autoCheckOutLongSessions() {
   // “Check out” means remove presence rows only (no time_logs inserted).
-  await dbQuery('DELETE FROM current_presence');
+  // Only rows where the same check-in session has lasted >= threshold hours
+  // (checked_in_at is the session start and is not reset until checkout).
+  const thresholdHours = AUTO_CHECK_OUT_MAX_CONTINUOUS_HOURS;
+  const result = await dbQuery(
+    `DELETE FROM current_presence
+     WHERE (now() - checked_in_at) >= ($1 * INTERVAL '1 hour')`,
+    [thresholdHours]
+  );
+  return Number(result.rowCount || 0);
 }
 
 function scheduleAutoCheckOut() {
-  // Best-effort: this runs while the Node server is running.
-  const now = new Date();
-  const next = new Date(now);
-  next.setHours(AUTO_CHECK_OUT_HOUR, AUTO_CHECK_OUT_MINUTE, 0, 0);
-  if (next <= now) next.setDate(next.getDate() + 1);
-
-  const msUntil = next.getTime() - now.getTime();
-  setTimeout(async () => {
+  // Best-effort sweep while the Node server is running.
+  const sweep = async () => {
     try {
-      const todayISO = getTodayISO();
-      if (lastAutoCheckOutISODate !== todayISO) {
-        await autoCheckOutEveryone();
-        lastAutoCheckOutISODate = todayISO;
-        console.log(`Auto check-out executed at ${AUTO_CHECK_OUT_HOUR}:${AUTO_CHECK_OUT_MINUTE}.`);
-      }
+      const removedCount = await autoCheckOutLongSessions();
+      console.log(
+        `Auto check-out sweep: removed ${removedCount} user(s) with continuous presence >= ${AUTO_CHECK_OUT_MAX_CONTINUOUS_HOURS}h.`
+      );
     } catch (err) {
       console.error('Auto check-out failed.', err);
-    } finally {
-      scheduleAutoCheckOut(); // schedule next day
     }
-  }, msUntil);
+  };
+
+  // Run once on startup, then keep sweeping.
+  sweep();
+  setInterval(sweep, Math.max(60 * 1000, AUTO_CHECK_OUT_SWEEP_INTERVAL_MS));
 }
 
 // Middleware
@@ -1375,7 +1379,8 @@ app.post('/api/presence/check-in', authMiddleware, async (req, res) => {
     await dbQuery(
       `INSERT INTO current_presence (user_id, checked_in_at)
        VALUES ($1, now())
-       ON CONFLICT (user_id) DO UPDATE SET checked_in_at = EXCLUDED.checked_in_at`,
+       ON CONFLICT (user_id) DO UPDATE
+       SET checked_in_at = current_presence.checked_in_at`,
       [userId]
     );
     res.json({ ok: true });
