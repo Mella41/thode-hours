@@ -569,11 +569,27 @@ input:focus {
   letter-spacing: 0.01em;
 }
 
-.presence-warning {
+.presence-warning-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 1rem;
   margin: 0.7rem 0 0.35rem;
+}
+
+.presence-warning {
+  margin: 0;
   color: #dc2626;
   font-size: 1.1rem;
   font-weight: 800;
+}
+
+.presence-warning-note {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--hint-color);
 }
 
 .table-wrapper {
