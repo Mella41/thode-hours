@@ -42,6 +42,8 @@ Create environment variables before running:
 - Optional behavior tuning:
   - `AUTO_CHECK_OUT_MAX_CONTINUOUS_HOURS` (default `25`)
   - `AUTO_CHECK_OUT_SWEEP_INTERVAL_MS` (default `300000`)
+  - `CORS_ALLOWED_ORIGINS` (comma-separated list; leave empty for local dev)
+  - `ADMIN_TOKEN` (recommended in production for admin endpoints)
 
 ### Run locally
 
@@ -75,4 +77,5 @@ http://localhost:3000
 - The app stores and computes study history from `time_logs`.
 - Presence (`current_presence`) is separate from logged study entries.
 - API routes are under `/api/*`.
+- In production, set a strong `JWT_SECRET` and configure `CORS_ALLOWED_ORIGINS`.
 

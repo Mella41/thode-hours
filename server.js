@@ -1,6 +1,8 @@
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const bcrypt = require('bcryptjs');
@@ -15,6 +17,7 @@ process.env.TZ = process.env.TZ || 'America/Toronto';
 const MAC_EMAIL_DOMAIN = '@mcmaster.ca';
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
 let dbReady = false;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const DB_POOL_MAX = Number(process.env.DB_POOL_MAX || 10);
 const DB_IDLE_TIMEOUT_MS = Number(process.env.DB_IDLE_TIMEOUT_MS || 30000);
 const DB_CONNECTION_TIMEOUT_MS = Number(process.env.DB_CONNECTION_TIMEOUT_MS || 10000);
@@ -25,6 +28,10 @@ const AUTO_CHECK_OUT_MAX_CONTINUOUS_HOURS =
 const AUTO_CHECK_OUT_SWEEP_INTERVAL_MS = Number(
   process.env.AUTO_CHECK_OUT_SWEEP_INTERVAL_MS || 5 * 60 * 1000
 );
+const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 function compactErrorForLogs(err) {
   if (!err || typeof err !== 'object') return err;
@@ -77,9 +84,28 @@ function scheduleAutoCheckOut() {
 }
 
 // Middleware
-app.use(cors());
+app.set('trust proxy', 1);
+app.use(
+  helmet({
+    contentSecurityPolicy: false
+  })
+);
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (CORS_ALLOWED_ORIGINS.length === 0) return callback(null, true);
+      if (CORS_ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+      return callback(new Error('CORS origin not allowed.'));
+    }
+  })
+);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+if (IS_PRODUCTION && JWT_SECRET === 'dev-secret-change-me') {
+  throw new Error('In production, JWT_SECRET must be set to a strong secret.');
+}
 
 // Database (Postgres/Supabase) setup
 if (!process.env.DATABASE_URL) {
@@ -554,6 +580,38 @@ function authMiddleware(req, res, next) {
   }
 }
 
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many auth attempts. Please try again later.' }
+});
+
+const passwordResetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 6,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many reset attempts. Please try again later.' }
+});
+
+function requireAdminToken(req, res) {
+  const requiredToken = process.env.ADMIN_TOKEN;
+  if (!requiredToken && IS_PRODUCTION) {
+    res.status(503).json({ error: 'Admin endpoint disabled in production until ADMIN_TOKEN is set.' });
+    return false;
+  }
+  if (requiredToken) {
+    const provided = req.headers['x-admin-token'];
+    if (!provided || provided !== requiredToken) {
+      res.status(403).json({ error: 'Forbidden.' });
+      return false;
+    }
+  }
+  return true;
+}
+
 // Keep a lightweight probe endpoint for uptime checks and deployment health.
 app.get('/healthz', (_req, res) => {
   res.json({ ok: true, dbReady, uptimeSeconds: Math.floor(process.uptime()) });
@@ -568,7 +626,7 @@ app.use('/api', (req, res, next) => {
 // API routes
 
 // Signup
-app.post('/api/signup', async (req, res) => {
+app.post('/api/signup', authLimiter, async (req, res) => {
   const { username, email, password } = req.body || {};
   if (!username || !email || !password) {
     return res.status(400).json({ error: 'Username, email, and password are required.' });
@@ -605,7 +663,7 @@ app.post('/api/signup', async (req, res) => {
 });
 
 // Login (accepts email OR username)
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', authLimiter, async (req, res) => {
   const { identifier, password } = req.body || {};
   if (!identifier || !password) {
     return res.status(400).json({ error: 'Email or username and password are required.' });
@@ -1191,7 +1249,7 @@ app.delete('/api/logs/:id', authMiddleware, async (req, res) => {
 });
 
 // Forgot password - send reset link
-app.post('/api/forgot-password', async (req, res) => {
+app.post('/api/forgot-password', passwordResetLimiter, async (req, res) => {
   const { email } = req.body || {};
   if (!email) {
     return res.status(400).json({ error: 'Email is required.' });
@@ -1276,13 +1334,7 @@ app.post('/api/reset-password', async (req, res) => {
 // Admin: delete all users who do not have a @mcmaster.ca email
 // Optionally protected by ADMIN_TOKEN environment variable (sent via X-Admin-Token header)
 app.delete('/api/admin/purge-non-mac-users', async (req, res) => {
-  const requiredToken = process.env.ADMIN_TOKEN;
-  if (requiredToken) {
-    const provided = req.headers['x-admin-token'];
-    if (!provided || provided !== requiredToken) {
-      return res.status(403).json({ error: 'Forbidden.' });
-    }
-  }
+  if (!requireAdminToken(req, res)) return;
 
   try {
     const nonMacUsersRes = await dbQuery(
@@ -1323,13 +1375,7 @@ app.delete('/api/admin/purge-non-mac-users', async (req, res) => {
 // Admin: delete all users and related data
 // Protected by the same ADMIN_TOKEN mechanism as above
 app.delete('/api/admin/delete-all-users', async (req, res) => {
-  const requiredToken = process.env.ADMIN_TOKEN;
-  if (requiredToken) {
-    const provided = req.headers['x-admin-token'];
-    if (!provided || provided !== requiredToken) {
-      return res.status(403).json({ error: 'Forbidden.' });
-    }
-  }
+  if (!requireAdminToken(req, res)) return;
 
   try {
     const deleteLogs = await dbQuery('DELETE FROM time_logs');
