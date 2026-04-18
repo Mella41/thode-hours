@@ -80,8 +80,4 @@ SELECT COUNT(*) AS currently_checked_in_users
 FROM current_presence;
 ```
 
-#### Suggested resume wording
-
-- Built and deployed a study-hours tracking app used by **X registered users** (source: Supabase Postgres `users` table, as of Month Year).
-- Reached a peak of **Y monthly active users** in Month Year (distinct `user_id` in `time_logs`).
 
