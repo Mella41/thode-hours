@@ -45,8 +45,7 @@ http://localhost:3000
 
 ### Metrics verification (resume-safe)
 
-If you want to back up usage numbers (for resumes/interviews), use aggregate SQL in Supabase SQL Editor.
-Do **not** share raw user lists, emails, or usernames publicly.
+for usage numbers  use aggregate SQL in Supabase SQL Editor.
 
 #### 1) Total registered users
 
