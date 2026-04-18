@@ -34,12 +34,55 @@ http://localhost:3000
 
 ### How it works
 
-- Backend: Node.js + Express with a local SQLite database file (`data.sqlite`) using `better-sqlite3`.
+- Backend: Node.js + Express with PostgreSQL (Supabase-hosted via `DATABASE_URL`).
 - Frontend: Plain HTML/CSS/JavaScript in the `public` folder.
-- Authentication is simple: email + password stored in the local database (for personal use only, not production-secure).
+- Authentication uses JWT + bcrypt password hashing, with user data stored in PostgreSQL.
 - After logging in, the app:
   - Lets you add daily entries with date, arrival time, and departure time.
   - Calculates hours from arrival/departure for each entry.
   - Shows your total hours this month plus a table of your logs.
   - Shows a leaderboard for the current month for all users.
+
+### Metrics verification (resume-safe)
+
+If you want to back up usage numbers (for resumes/interviews), use aggregate SQL in Supabase SQL Editor.
+Do **not** share raw user lists, emails, or usernames publicly.
+
+#### 1) Total registered users
+
+```sql
+SELECT COUNT(*) AS total_registered_users
+FROM users;
+```
+
+#### 2) Peak active month (highest monthly active users)
+
+```sql
+SELECT
+  substr(date, 1, 7) AS month,
+  COUNT(DISTINCT user_id) AS monthly_active_users
+FROM time_logs
+GROUP BY substr(date, 1, 7)
+ORDER BY monthly_active_users DESC, month DESC
+LIMIT 1;
+```
+
+#### 3) Total logged sessions
+
+```sql
+SELECT COUNT(*) AS total_logged_sessions
+FROM time_logs;
+```
+
+#### 4) Current checked-in users
+
+```sql
+SELECT COUNT(*) AS currently_checked_in_users
+FROM current_presence;
+```
+
+#### Suggested resume wording
+
+- Built and deployed a study-hours tracking app used by **X registered users** (source: Supabase Postgres `users` table, as of Month Year).
+- Reached a peak of **Y monthly active users** in Month Year (distinct `user_id` in `time_logs`).
 
