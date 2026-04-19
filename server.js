@@ -33,6 +33,24 @@ const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || '')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+function normalizeOrigin(origin) {
+  if (!origin || typeof origin !== 'string') return null;
+  return origin.trim().replace(/\/+$/, '').toLowerCase();
+}
+
+function buildAllowedOriginsSet() {
+  const allowed = new Set(CORS_ALLOWED_ORIGINS.map((origin) => normalizeOrigin(origin)).filter(Boolean));
+  const appBase = normalizeOrigin(process.env.APP_BASE_URL || '');
+  if (appBase) allowed.add(appBase);
+  // Common local/dev + production origins for this app.
+  allowed.add('http://localhost:3000');
+  allowed.add('http://127.0.0.1:3000');
+  allowed.add('https://thode-hours.onrender.com');
+  return allowed;
+}
+
+const ALLOWED_ORIGINS = buildAllowedOriginsSet();
+
 function compactErrorForLogs(err) {
   if (!err || typeof err !== 'object') return err;
   return {
@@ -94,9 +112,14 @@ app.use(
   cors({
     origin(origin, callback) {
       if (!origin) return callback(null, true);
-      if (CORS_ALLOWED_ORIGINS.length === 0) return callback(null, true);
-      if (CORS_ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-      return callback(new Error('CORS origin not allowed.'));
+      // Keep permissive behavior when no explicit allow-list is configured.
+      if (ALLOWED_ORIGINS.size === 0) return callback(null, true);
+
+      const normalized = normalizeOrigin(origin);
+      if (normalized && ALLOWED_ORIGINS.has(normalized)) return callback(null, true);
+
+      // Deny without throwing to avoid noisy stack traces for ordinary browser preflights.
+      return callback(null, false);
     }
   })
 );
