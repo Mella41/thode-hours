@@ -181,6 +181,59 @@ async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
   `);
+
+  // Backfill schema updates for existing/legacy databases where
+  // CREATE TABLE IF NOT EXISTS will not add newly introduced columns.
+  await dbQuery(`
+    ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS username TEXT;
+
+    ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'users_username_key'
+      ) THEN
+        ALTER TABLE users
+          ADD CONSTRAINT users_username_key UNIQUE (username);
+      END IF;
+    EXCEPTION
+      WHEN duplicate_table OR duplicate_object THEN
+        NULL;
+    END
+    $$;
+
+    ALTER TABLE time_logs
+      ADD COLUMN IF NOT EXISTS productivity TEXT NOT NULL DEFAULT 'Super locked';
+
+    ALTER TABLE time_logs
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+    CREATE TABLE IF NOT EXISTS user_achievements (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      month TEXT NOT NULL,
+      achievement_key TEXT NOT NULL,
+      unlocked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (user_id, month, achievement_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS current_presence (
+      user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      checked_in_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS feedback_entries (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      message TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
 }
 
 // Mail transporter (configure via environment)
